@@ -104,3 +104,14 @@ venv.bak/
 .mypy_cache/
 
 test.py
+
+# images (Elapsed)
+images.tar.gzaa
+images.tar.gzab
+images.tar.gzac
+images.tar.gzad
+images.tar.gzae
+images.tar.gzaf
+images.tar.gzag
+
+data/
