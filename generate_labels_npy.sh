@@ -1,0 +1,1 @@
+sudo python3 ./mvn/datasets/human36m_preprocessing/generate-labels-npy-multiview.py ./data/human36m ./data/human36m/extra/una-dinosauria-data/h36m ./data/human36m/extra/bboxes-Human36M-GT.npy

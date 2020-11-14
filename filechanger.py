@@ -30,7 +30,7 @@ temp2=['54138969', '55011271', '58860488', '60457274']
 cwd=os.getcwd()
 images=os.listdir('images')
 for f1 in images:
-    for f2 in os.listdir('images\\'+f1):
+    for f2 in os.listdir('images/'+f1):
         if f2.split('.')[1]=='jpg':
             f3= f2.split('_'); # f3[1] determines subject, f3[3] determines action, f3[5] determines subaction, f4[7] determines camera, f4[8] determines imagenum
             subname='S'+str(int(f3[1]))
@@ -40,7 +40,7 @@ for f1 in images:
             if len(f3)==10:
                 continue
             imgnum=f3[8]
-            if not os.path.exists(cwd+'\\data\\human36m\\processed\\'+subname+'\\'+actname+subact+'\\imageSequence\\'+camnum):
-                os.makedirs(cwd+'\\data\\human36m\\processed\\'+subname+'\\'+actname+subact+'\\imageSequence\\'+camnum)
-            os.replace(cwd+'\\images\\'+f1+'\\'+f2,cwd+'\\data\\human36m\\processed\\'+subname+'\\'+actname+subact+'\\imageSequence\\'+camnum+'\\'+'img_'+imgnum)
+            if not os.path.exists(cwd+'/data/human36m/processed/'+subname+'/'+actname+subact+'/imageSequence/'+camnum):
+                os.makedirs(cwd+'/data/human36m/processed/'+subname+'/'+actname+subact+'/imageSequence/'+camnum)
+            os.replace(cwd+'/images/'+f1+'/'+f2,cwd+'/data/human36m/processed/'+subname+'/'+actname+subact+'/imageSequence/'+camnum+'/'+'img_'+imgnum)
                 
