@@ -190,11 +190,11 @@ class AlgebraicTriangulationNet(nn.Module):
                 confidences_batch=alg_confidences
             )
         except RuntimeError as e:
-            print("Error: ", e)
+            print("Error trianguilation.py: ", e)
 
-            print("confidences =", confidences_batch_pred)
-            print("proj_matricies = ", proj_matricies)
-            print("keypoints_2d_batch_pred =", keypoints_2d_batch_pred)
+            # print("confidences =", confidences_batch_pred)
+            # print("proj_matricies = ", proj_matricies)
+            # print("keypoints_2d_batch_pred =", keypoints_2d_batch_pred)
             exit()
 
         return keypoints_3d, keypoints_2d, heatmaps, alg_confidences

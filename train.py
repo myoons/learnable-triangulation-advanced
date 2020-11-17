@@ -154,6 +154,9 @@ def setup_experiment(config, model_name, is_train=True):
 
 # Code for One Epoch
 def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_total=0, is_train=True, caption='', master=False, experiment_dir=None, writer=None):
+    
+    print("Start Epoch :",epoch)
+
     name = "train" if is_train else "val"
     model_type = config.model.name # alg
 
@@ -463,6 +466,8 @@ def main(args):
         for epoch in range(config.opt.n_epochs):
             if train_sampler is not None:
                 train_sampler.set_epoch(epoch)
+
+            print("Start Training")
 
             n_iters_total_train = one_epoch(model, criterion, opt, config, train_dataloader, device, epoch, n_iters_total=n_iters_total_train, is_train=True, master=master, experiment_dir=experiment_dir, writer=writer)
             n_iters_total_val = one_epoch(model, criterion, opt, config, val_dataloader, device, epoch, n_iters_total=n_iters_total_val, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
