@@ -15,10 +15,10 @@ h36m_root = sys.argv[1]
 labels_path = sys.argv[2]
 
 try:    sample_idx = int(sys.argv[3])
-except: sample_idx = 0
+except: sample_idx = 25300
 
 try:    step = int(sys.argv[4])
-except: step = 10
+except: step = 20
 
 sys.path.append(os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../.."))
 from mvn.datasets.human36m import Human36MMultiViewDataset
@@ -34,7 +34,7 @@ dataset = Human36MMultiViewDataset(
     scale_bbox=1.0,
     kind='human36m',
     norm_image=False,
-    undistort_images=True,
+    undistort_images=False,
     ignore_cameras=[])
 print(len(dataset))
 

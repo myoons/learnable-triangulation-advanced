@@ -44,7 +44,6 @@ fig.add_subplot(rows, cols, 2).imshow(imgClouds)
 fig.add_subplot(rows, cols, 3).imshow(imgFogs)
 fig.add_subplot(rows, cols, 4).imshow(imgSnowFlakes)
 
-plt.imshow(imgClouds)
 plt.show()
 
 
