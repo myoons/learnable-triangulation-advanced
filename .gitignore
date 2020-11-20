@@ -120,3 +120,4 @@ images_tar/
 logs/
 
 nohup.out
+nohupOutputs/

@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument("--config", type=str, required=True, help="Path, where config file is stored") 
     parser.add_argument('--eval', action='store_true', help="If set, then only evaluation will be done")
     parser.add_argument('--eval_dataset', type=str, default='val', help="Dataset split on which evaluate. Can be 'train' and 'val'")
-
+    parser.add_argument("--master", type=str, default='yes', help="If set no, dont' write experiment")
     parser.add_argument("--local_rank", type=int, help="Local rank of the process on the node")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
 
@@ -155,8 +155,9 @@ def setup_experiment(config, model_name, is_train=True):
 # Code for One Epoch
 def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_total=0, is_train=True, caption='', master=False, experiment_dir=None, writer=None):
     
+    # name = "train/val"
     name = "train" if is_train else "val"
-    model_type = config.model.name # alg
+    model_type = config.model.name # alg, vol
 
     if is_train:
         model.train()
@@ -164,20 +165,19 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
         model.eval()
 
     metric_dict = defaultdict(list) # defaultdict : if there is no key, make new key:value pair with emtpy list
-
     results = defaultdict(list)
 
-    # used to turn on/off gradients
+    # used to turn on/off gradients ; train : enable_grad(), val : no_grad()
     grad_context = torch.autograd.enable_grad if is_train else torch.no_grad
     with grad_context():
         end = time.time()
 
         iterator = enumerate(dataloader) # train_loader / val_loader , len(dataloader) :48743
         if is_train and config.opt.n_iters_per_epoch is not None: # 1875
+            # islice(iterable, start, stop, step) isslice(iterator, 1875) --> index 0 ~ 1874 (1875개) 할당함
             iterator = islice(iterator, config.opt.n_iters_per_epoch)
 
-        print("Start Epoch :",epoch,"\t Total Iters :",config.opt.n_iters_per_epoch)
-
+        
         for iter_i, batch in iterator: # enumerate(dataloader)
 
             # measure data loading time
@@ -187,9 +187,22 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                 print("Found None batch")
                 continue
                 
-            # Bring images and gt
-            images_batch, keypoints_3d_gt, keypoints_3d_validity_gt, proj_matricies_batch = dataset_utils.prepare_batch(batch, device, config)
+            '''
+            Bring Images and GT
+            batch_size : 8
+            n_views : 4
+            image_shape : (384, 384)
+            n_joints : 17
+            scale_keypoints_3d : 0.1
+            keypoints_2d_pred : torch.Size([8, 4, 17, 2]) # [batchSize, Camera, Joints, XY] : Prediction of Joints in 2D (each Camera)
+            keypoints_3d_gt : torch.Size([8, 17, 3]) # [batchSize, Joints, XYZ] : GT of Joints
+            keypoints_3d_pred : torch.Size([8, 17, 3]) # [batchSize, Joints, XYZ] : Prediction of Joints
+            keypoints_3d_binary_validity_gt : torch.Size([8, 17, 1]) # [batchSize, Joints, Validity of Joints] : Validity of Joints
+            proj_matricies_batch : torch.Size([8, 4, 3, 4]) #
+            confidences_pred : torch.Size([8, 4, 17]) # [batchSize, Camera, Joint] : Validity of each Joint in each Camera
+            '''
 
+            images_batch, keypoints_3d_gt, keypoints_3d_validity_gt, proj_matricies_batch = dataset_utils.prepare_batch(batch, device, config)
             keypoints_2d_pred, cuboids_pred, base_points_pred = None, None, None
 
             # prediction with model (input)
@@ -201,8 +214,10 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             batch_size, n_views, image_shape = images_batch.shape[0], images_batch.shape[1], tuple(images_batch.shape[3:])
             n_joints = keypoints_3d_pred.shape[1]
 
+            # If GT validity is bigger than Zero : 1 ? : 0 
             keypoints_3d_binary_validity_gt = (keypoints_3d_validity_gt > 0.0).type(torch.float32)
 
+            # Default : scale_keypoints_3d = 0.1 --> 오차가 1/100로 줄을듯?
             scale_keypoints_3d = config.opt.scale_keypoints_3d if hasattr(config.opt, "scale_keypoints_3d") else 1.0
 
             # 1-view case (Not our case ; Muli-view)
@@ -223,12 +238,14 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             # calculate loss
             total_loss = 0.0
             loss = criterion(keypoints_3d_pred * scale_keypoints_3d, keypoints_3d_gt * scale_keypoints_3d, keypoints_3d_binary_validity_gt)
+            # loss 는 X, Y, Z 오차들의 합(에 몇 숫자 조작을 한 것)
             total_loss += loss
-            metric_dict[f'{config.opt.criterion}'].append(loss.item()) # metric_dict["MSESmooth"]
+            # metric_dict["MSESmooth"] 에 loss 값을 추가해준다. (list)
+            metric_dict[f'{config.opt.criterion}'].append(loss.item()) 
 
             if (iter_i % 500 == 0) :
                 print('--------------------------------------------------\n')
-                print('Epoch :',epoch,'\t Iter :',iter_i,'\t loss :',loss)
+                print('Epoch :',epoch,'\t Iter :',iter_i,'\t loss :',total_loss)
                 print('\n--------------------------------------------------')
 
             # volumetric ce loss
@@ -244,10 +261,11 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
             metric_dict['total_loss'].append(total_loss.item())
 
-            if is_train:
+            if is_train: # If in Trainloop
                 opt.zero_grad() # input
                 total_loss.backward() # back propagation
 
+                # Default False
                 if hasattr(config.opt, "grad_clip"):
                     torch.nn.utils.clip_grad_norm_(model.parameters(), config.opt.grad_clip / config.opt.lr)
 
@@ -267,7 +285,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
                     if config.model.kind == "coco":
                         base_point_gt = (keypoints_3d_gt[batch_i, 11, :3] + keypoints_3d[batch_i, 12, :3]) / 2
-                    elif config.model.kind == "mpii":
+                    elif config.model.kind == "mpii": # Default
                         base_point_gt = keypoints_3d_gt[batch_i, 6, :3]
 
                     base_point_l2_list.append(torch.sqrt(torch.sum((base_point_pred * scale_keypoints_3d - base_point_gt * scale_keypoints_3d) ** 2)).item())
@@ -281,9 +299,10 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                 results['indexes'].append(batch['indexes'])
 
             # plot visualization
-            if master: # function parameter
+            if master: # Base True --> if master : experiment result
                 if n_iters_total % config.vis_freq == 0:# or total_l2.item() > 500.0:
-                    vis_kind = config.kind
+                    print('****Plotting / n_iters_total : {} ****'.format(n_iters_total))
+                    vis_kind = config.kind #human36m
                     if (config.transfer_cmu_to_human36m if hasattr(config, "transfer_cmu_to_human36m") else False):
                         vis_kind = "coco"
 
@@ -319,6 +338,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
                 # dump weights to tensoboard
                 if n_iters_total % config.vis_freq == 0:
+                    print('**** dump weights to tensoboard ****')
                     for p_name, p in model.named_parameters():
                         try:
                             writer.add_histogram(p_name, p.clone().cpu().data.numpy(), n_iters_total)
@@ -380,6 +400,12 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
 def init_distributed(args):
     if "WORLD_SIZE" not in os.environ or int(os.environ["WORLD_SIZE"]) < 1:
+
+        if "WORLD_SIZE" in os.environ:
+            print("**** Not Distributed , WORLD_SIZE : {} ****".format(int(os.environ["WORLD_SIZE"])))
+        else:
+            print("**** Not Distributed , No WORLD_SIZE ****")
+
         return False
 
     torch.cuda.set_device(args.local_rank)
@@ -394,10 +420,16 @@ def init_distributed(args):
 
 
 def main(args):
-    print("Number of available GPUs: {}".format(torch.cuda.device_count()))
+    print("**** Number of available GPUs: {} ****".format(torch.cuda.device_count()))
 
     is_distributed = init_distributed(args)
-    master = True
+    if args.master != 'yes':
+        master = False
+    else :
+        master = True
+
+    print("****Master : {}****".format(master))
+
     if is_distributed and os.environ["RANK"]:
         master = int(os.environ["RANK"]) == 0
 
@@ -407,25 +439,27 @@ def main(args):
         device = torch.device(0)
 
     # config
-    config = cfg.load_config(args.config)
-    config.opt.n_iters_per_epoch = config.opt.n_objects_per_epoch // config.opt.batch_size # 1875 
+    config = cfg.load_config(args.config) # config file
+    config.opt.n_iters_per_epoch = config.opt.n_objects_per_epoch // config.opt.batch_size 
+    print("**** n_iters_per_epoch : {} **** ".format(config.opt.n_iters_per_epoch)) 
 
+    # Select model based on parameters
     model = {
         "ransac": RANSACTriangulationNet,
         "alg": AlgebraicTriangulationNet,
         "vol": VolumetricTriangulationNet
     }[config.model.name](config, device=device).to(device)
 
-    if config.model.init_weights:
-        state_dict = torch.load(config.model.checkpoint)
+    if config.model.init_weights: # eval
+        state_dict = torch.load(config.model.checkpoint) # Load Saved Model
         for key in list(state_dict.keys()):
             new_key = key.replace("module.", "")
             state_dict[new_key] = state_dict.pop(key)
 
         model.load_state_dict(state_dict, strict=True)
-        print("Successfully loaded pretrained weights for whole model")
+        print("**** Successfully loaded pretrained weights for whole model; {} ****".format(type(model)))
 
-    # criterion
+    # criterion; Default : MSESmooth
     criterion_class = {
         "MSE": KeypointsMSELoss,
         "MSESmooth": KeypointsMSESmoothLoss,
@@ -433,11 +467,11 @@ def main(args):
     }[config.opt.criterion]
 
     if config.opt.criterion == "MSESmooth":
-        criterion = criterion_class(config.opt.mse_smooth_threshold)
+        criterion = criterion_class(config.opt.mse_smooth_threshold) # Default : 400
     else:
         criterion = criterion_class()
 
-    # optimizer
+    # optimizer; Default : Adam, lr = 1e-5
     opt = None
     if not args.eval:
         if config.model.name == "vol":
@@ -449,24 +483,46 @@ def main(args):
                 lr=config.opt.lr
             )
         else:
+            # There are some parameters that shouldn't be optimized
             opt = optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=config.opt.lr)
 
 
     # datasets
     print("Loading data...")
+
     train_dataloader, val_dataloader, train_sampler = setup_dataloaders(config, distributed_train=is_distributed)
+
+    if train_dataloader == None : 
+        trainLength = 0
+    else :
+        trainLength = len(train_dataloader);
+    if val_dataloader == None : 
+        valLength = 0
+    else :
+        valLength = len(val_dataloader);
+    if train_sampler == None : 
+        samplerLength = 0
+    else :
+        samplerLength = len(train_sampler);
+
+    print("""
+    --------------------------------Data------------------------------
+    train_dataloader : {}
+    val_dataloader : {}
+    train_sampler : {}
+    ------------------------------------------------------------------
+    """.format(trainLength, valLength, samplerLength))
 
     # experiment
     experiment_dir, writer = None, None
-    if master:
+    if master: # If set, write experiment; 진짜 결과 낼 때 필요
         experiment_dir, writer = setup_experiment(config, type(model).__name__, is_train=not args.eval)
 
     # multi-gpu
     if is_distributed:
         model = DistributedDataParallel(model, device_ids=[device])
 
-    if not args.eval:
-        # train loop
+    if not args.eval: # train loop
         n_iters_total_train, n_iters_total_val = 0, 0
         
         print('----------------------------------------------------------------------------------------------\n')
@@ -476,9 +532,15 @@ def main(args):
             if train_sampler is not None:
                 train_sampler.set_epoch(epoch)
 
+            print('*******************************************************************************************************\n')
+            print("Start Epoch : {} \t is_train : {} \t n_iters_total_train : {} \t  n_iters_total_val : {}".format(is_train, epoch, n_iters_total_train, n_iters_total_val))
+
             n_iters_total_train = one_epoch(model, criterion, opt, config, train_dataloader, device, epoch, n_iters_total=n_iters_total_train, is_train=True, master=master, experiment_dir=experiment_dir, writer=writer)
             n_iters_total_val = one_epoch(model, criterion, opt, config, val_dataloader, device, epoch, n_iters_total=n_iters_total_val, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
 
+            print("Finish Epoch : {} \t is_train : {} \t n_iters_total_train : {} \t  n_iters_total_val : {}".format(is_train, epoch, n_iters_total_train, n_iters_total_val))
+            print('\n*******************************************************************************************************')
+            
             if master:
                 checkpoint_dir = os.path.join(experiment_dir, "checkpoints", "{:04}".format(epoch))
                 os.makedirs(checkpoint_dir, exist_ok=True)
@@ -486,13 +548,23 @@ def main(args):
                 torch.save(model.state_dict(), os.path.join(checkpoint_dir, "weights.pth"))
 
             print(f"{n_iters_total_train} iters done.")
-    else:
-        if args.eval_dataset == 'train':
-            one_epoch(model, criterion, opt, config, train_dataloader, device, 0, n_iters_total=0, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
-        else:
-            one_epoch(model, criterion, opt, config, val_dataloader, device, 0, n_iters_total=0, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
 
-    print("Done.")
+    else: # Validation Loop
+
+        print('----------------------------------------------------------------------------------------------\n')
+        print("Start Evaluating")
+
+        if args.eval_dataset == 'train':
+            # (model, criterion, opt, config, dataloader, device, epoch, n_iters_total=0, is_train=True, caption='', master=False, experiment_dir=None, writer=None)
+            one_epoch(model, criterion, opt, config, train_dataloader, device, epoch=0, n_iters_total=0, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
+        else: # Default
+            one_epoch(model, criterion, opt, config, val_dataloader, device, epoch=0, n_iters_total=0, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
+
+    print("""
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                                        Everything Done
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    """)
 
 if __name__ == '__main__':
     args = parse_args()
