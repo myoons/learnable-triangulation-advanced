@@ -15,7 +15,7 @@ h36m_root = sys.argv[1]
 labels_path = sys.argv[2]
 
 try:    sample_idx = int(sys.argv[3])
-except: sample_idx = 25300
+except: sample_idx = 12300
 
 try:    step = int(sys.argv[4])
 except: step = 20
@@ -36,12 +36,13 @@ dataset = Human36MMultiViewDataset(
     norm_image=False,
     undistort_images=False,
     ignore_cameras=[])
-print(len(dataset))
 
 prev_action = None
 patience = 0
 
-while True:
+count = 0
+
+while count < 5:
     sample = dataset[sample_idx]
 
     camera_idx = 0
@@ -69,6 +70,8 @@ while True:
     cv2.waitKey(0)
 
     action = dataset.labels['table'][sample_idx]['action_idx']
+    count += 1
+    
     if action != prev_action: # started a new action
         prev_action = action
         patience = 2000

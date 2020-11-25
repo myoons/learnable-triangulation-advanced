@@ -31,6 +31,7 @@ retval = {
         'WalkingDog-1', 'WalkingDog-2',
         'WalkingTogether-1', 'WalkingTogether-2']
 }
+
 retval['cameras'] = np.empty(
     (len(retval['subject_names']), len(retval['camera_names'])),
     dtype=[
@@ -110,13 +111,13 @@ def square_the_bbox(bbox):
 
     return top, left, bottom, right
 
-for subject in bboxes.keys():
-    for action in bboxes[subject].keys():
-        for camera, bbox_array in bboxes[subject][action].items():
+for subject in bboxes.keys(): # S1
+    for action in bboxes[subject].keys(): # Action 
+        for camera, bbox_array in bboxes[subject][action].items(): # Camera, bbox_array = (2721, 4) array
             for frame_idx, bbox in enumerate(bbox_array):
                 bbox[:] = square_the_bbox(bbox)
 
-# Not need code
+""" # Not need code
 if BBOXES_SOURCE is not 'GT':
     def replace_gt_bboxes_with_cnn(bboxes_gt, bboxes_detected_path, detections_file_list):
         """
@@ -160,6 +161,7 @@ if BBOXES_SOURCE is not 'GT':
         bboxes,
         detections_paths[BBOXES_SOURCE]['test'],
         "/Vol1/dbstore/datasets/Human3.6M/test-images-list.txt")
+"""
 
 # fill retval['table']
 from action_to_una_dinosauria import action_to_una_dinosauria

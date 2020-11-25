@@ -167,8 +167,9 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
     metric_dict = defaultdict(list) # defaultdict : if there is no key, make new key:value pair with emtpy list
     results = defaultdict(list)
 
-    # used to turn on/off gradients ; train : enable_grad(), val : no_grad()
+    # used to turn on/off gradients ;; train : enable_grad() / val : no_grad()
     grad_context = torch.autograd.enable_grad if is_train else torch.no_grad
+
     with grad_context():
         end = time.time()
 
@@ -189,7 +190,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                 
             '''
             Bring Images and GT
-            batch_size : 8
+            batch_size : 100
             n_views : 4
             image_shape : (384, 384)
             n_joints : 17
@@ -298,6 +299,21 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                 results['keypoints_3d'].append(keypoints_3d_pred.detach().cpu().numpy())
                 results['indexes'].append(batch['indexes'])
 
+            """
+            print("-----------------------------Visualize---------------------------------")
+            for batch_i in range(min(batch_size, config.vis_n_elements)):
+                        keypoints_vis = vis.visualize_batch(
+                                        images_batch, heatmaps_pred, keypoints_2d_pred, proj_matricies_batch,
+                                        keypoints_3d_gt, keypoints_3d_pred,
+                                        kind=config.kind,
+                                        cuboids_batch=cuboids_pred,
+                                        confidences_batch=confidences_pred,
+                                        batch_index=batch_i, size=5,
+                                        max_n_cols=10
+                                    )
+            print("------------------------------Visualize Finish---------------------------")
+            """
+            
             # plot visualization
             if master: # Base True --> if master : experiment result
                 if n_iters_total % config.vis_freq == 0:# or total_l2.item() > 500.0:
@@ -307,6 +323,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                         vis_kind = "coco"
 
                     for batch_i in range(min(batch_size, config.vis_n_elements)):
+                        
                         keypoints_vis = vis.visualize_batch(
                             images_batch, heatmaps_pred, keypoints_2d_pred, proj_matricies_batch,
                             keypoints_3d_gt, keypoints_3d_pred,
@@ -314,8 +331,10 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                             cuboids_batch=cuboids_pred,
                             confidences_batch=confidences_pred,
                             batch_index=batch_i, size=5,
-                            max_n_cols=10
+                            max_n_cols=10,
+                            augmentation='train'
                         )
+                        
                         writer.add_image(f"{name}/keypoints_vis/{batch_i}", keypoints_vis.transpose(2, 0, 1), global_step=n_iters_total)
 
                         heatmaps_vis = vis.visualize_heatmaps(
@@ -533,12 +552,12 @@ def main(args):
                 train_sampler.set_epoch(epoch)
 
             print('*******************************************************************************************************\n')
-            print("Start Epoch : {} \t is_train : {} \t n_iters_total_train : {} \t  n_iters_total_val : {}".format(is_train, epoch, n_iters_total_train, n_iters_total_val))
+            print("Start Epoch : {} \t is_train : True \t n_iters_total_train : {} \t  n_iters_total_val : {}".format(epoch, n_iters_total_train, n_iters_total_val))
 
             n_iters_total_train = one_epoch(model, criterion, opt, config, train_dataloader, device, epoch, n_iters_total=n_iters_total_train, is_train=True, master=master, experiment_dir=experiment_dir, writer=writer)
             n_iters_total_val = one_epoch(model, criterion, opt, config, val_dataloader, device, epoch, n_iters_total=n_iters_total_val, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
 
-            print("Finish Epoch : {} \t is_train : {} \t n_iters_total_train : {} \t  n_iters_total_val : {}".format(is_train, epoch, n_iters_total_train, n_iters_total_val))
+            print("Finish Epoch : {} \t is_train : True \t n_iters_total_train : {} \t  n_iters_total_val : {}".format(epoch, n_iters_total_train, n_iters_total_val))
             print('\n*******************************************************************************************************')
             
             if master:

@@ -118,6 +118,7 @@ data/
 images_tar/
 
 logs/
+augs/
 
 nohup.out
 nohupOutputs/

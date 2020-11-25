@@ -47,7 +47,7 @@ def prepare_batch(batch, device, config, is_train=True):
     images_batch = []
     for image_batch in batch['images']:
         image_batch = image_batch_to_torch(image_batch)
-        image_batch = image_batch.to(device)
+        image_batch = image_batch.to(device) # [4, 3 ,384 384]
         images_batch.append(image_batch)
 
     images_batch = torch.stack(images_batch, dim=0)

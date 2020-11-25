@@ -2,8 +2,11 @@ import numpy as np
 import scipy.ndimage
 import skimage.transform
 import cv2
+import os
 
 import torch
+
+from datetime import datetime
 
 import matplotlib
 matplotlib.use('Agg')
@@ -88,7 +91,9 @@ def visualize_batch(images_batch, heatmaps_batch, keypoints_2d_batch, proj_matri
                     confidences_batch=None,
                     batch_index=0, size=5,
                     max_n_cols=10,
-                    pred_kind=None
+                    pred_kind=None,
+                    augmentation=None,
+                    iterI=None
                     ):
     if pred_kind is None:
         pred_kind = kind
@@ -174,7 +179,29 @@ def visualize_batch(images_batch, heatmaps_batch, keypoints_2d_batch, proj_matri
 
     fig_image = fig_to_array(fig)
 
-    plt.close('all')
+    if augmentation == 'train':
+        plt.close('all')
+    
+    elif augmentation != None:
+        
+        results_dir = os.path.join(os.getcwd(),'augs',augmentation.__class__.__name__,iterI)
+        if not os.path.isdir(results_dir):
+            os.makedirs(results_dir)
+
+        file_name = "{}.png".format(batch_index)
+        plt.savefig(results_dir + '/' + file_name)
+        plt.close('all')
+
+    else:
+
+        results_dir = os.path.join(os.getcwd(),'augs','None',iterI)
+        if not os.path.isdir(results_dir):
+            os.makedirs(results_dir)
+
+        file_name = "{}.png".format(batch_index)
+        plt.savefig(results_dir + '/' + file_name)
+        plt.close('all')
+
 
     return fig_image
 
