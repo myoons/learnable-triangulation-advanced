@@ -92,13 +92,16 @@ def aug_batch(original_batch, device, aug):
         for idx, transposedBatch in enumerate(transposedImages):
             # transposeBatch : torch.Size([100, 384, 384, 3])
             
+            
             uint8Tensor = torch.as_tensor(transposedBatch, dtype=torch.uint8, device='cpu')
             numpyBatch = uint8Tensor.numpy()
-            # auged_batch.append(seq(images=numpyBatch))
-            
+            # numpyBatch = transposedBatch.cpu().contiguous().numpy()
+
             auged_batch.append(aug.augment_images(images=numpyBatch))
 
-        auged_batch = torch.Tensor(auged_batch).to(device)
+        auged_batch = torch.FloatTensor(auged_batch).to(device)
+        print(auged_batch[0].dtype)
+
         auged_batch = auged_batch.permute(1, 0, 4, 2, 3).contiguous()  # auged_batch : [100, 4, 3, 384, 384]
 
         return auged_batch
@@ -220,10 +223,7 @@ def main(args):
     if is_distributed:
         model = DistributedDataParallel(model, device_ids=[device])
 
-    aug = iaa.FastSnowyLandscape(
-        lightness_threshold=140,
-        lightness_multiplier=2.5,
-    )
+    aug = iaa.imgcorruptlike.GaussianNoise(severity=2)
     aug_vis(model, config, val_dataloader, device, aug)
 
 
