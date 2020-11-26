@@ -86,28 +86,35 @@ def aug_batch(original_batch, device, aug):
     # transposedImages : [4, 100, 384, 384, 3]
     transposedImages = original_batch.permute(1,0,3,4,2).contiguous()
     auged_batch = []
+    for i in range(7):
+        temp_batch=[]
+        if aug != None :
 
-    if aug != None :
-
-        for idx, transposedBatch in enumerate(transposedImages):
-            # transposeBatch : torch.Size([100, 384, 384, 3])
-            
-            
-            uint8Tensor = torch.as_tensor(transposedBatch, dtype=torch.uint8, device='cpu')
-            numpyBatch = uint8Tensor.numpy()
-            # numpyBatch = transposedBatch.cpu().contiguous().numpy()
-
-            auged_batch.append(aug.augment_images(images=numpyBatch))
-
-        auged_batch = torch.FloatTensor(auged_batch).to(device)
-        print(auged_batch[0].dtype)
-
-        auged_batch = auged_batch.permute(1, 0, 4, 2, 3).contiguous()  # auged_batch : [100, 4, 3, 384, 384]
-
-        return auged_batch
-
+            for idx, transposedBatch in enumerate(transposedImages):
+                # transposeBatch : torch.Size([100, 384, 384, 3])            
+                uint8Tensor = torch.as_tensor(transposedBatch, dtype=torch.uint8, device='cpu')
+                numpyBatch = uint8Tensor.numpy()
+                # numpyBatch = transposedBatch.cpu().contiguous().numpy()
+                if i==0:
+                    temp_batch.append(iaa.ReplaceElementwise(0.1, [0, 255], per_channel=0.5)).augment_images(images=numpyBatch))
+                elif i==1:
+                    temp_batch.append(iaa.MotionBlur(k=15, angle=[-45, 45]).augment_images(images=numpyBatch))
+                elif i==2:
+                    temp_batch.append(iaa.GaussianBlur(sigma=(0.0, 3.0)).augment_images(images=numpyBatch))
+                elif i==3:
+                    temp_batch.append(iaa.MultiplyBrightness((0.5, 1.5)).augment_images(images=numpyBatch))
+                elif i==4:
+                    temp_batch.append(iaa.Fog().augment_images(images=numpyBatch))
+                elif i==5:
+                    temp_batch.append(iaa.Snowflakes(flake_size=(0.1, 0.4), speed=(0.01, 0.05)).augment_images(images=numpyBatch))
+                elif i==6:
+                    temp_batch.append(iaa.Rain().augment_images(images=numpyBatch))
+            temp_batch = torch.FloatTensor(temp_batch).to(device)
+            print(temp_batch[0].dtype)
+            temp_batch = temp_batch.permute(1, 0, 4, 2, 3).contiguous()  # temp_batch : [100, 4, 3, 384, 384]
+        auged_batch.append(temp_batch)
+    return auged_batch
     else :
-
         return original_batch
 
 def aug_vis(model, config, dataloader, device, aug):
@@ -128,34 +135,34 @@ def aug_vis(model, config, dataloader, device, aug):
             images_batch, keypoints_3d_gt, keypoints_3d_validity_gt, proj_matricies_batch = dataset_utils.prepare_batch(batch, device, config)
             keypoints_2d_pred, cuboids_pred, base_points_pred = None, None, None
 
-            auged_batch = aug_batch(images_batch, device, aug)
+            auged_batch_proto = aug_batch(images_batch, device, aug)
+            for auged_batch in auged_batch_proto:
+                # prediction with model (input)
+                if model_type == "alg" or model_type == "ransac":
+                    keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(auged_batch, proj_matricies_batch, batch)
+                elif model_type == "vol":
+                    keypoints_3d_pred, heatmaps_pred, volumes_pred, confidences_pred, cuboids_pred, coord_volumes_pred, base_points_pred = model(auged_batch, proj_matricies_batch, batch)
 
-            # prediction with model (input)
-            if model_type == "alg" or model_type == "ransac":
-                keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(auged_batch, proj_matricies_batch, batch)
-            elif model_type == "vol":
-                keypoints_3d_pred, heatmaps_pred, volumes_pred, confidences_pred, cuboids_pred, coord_volumes_pred, base_points_pred = model(auged_batch, proj_matricies_batch, batch)
+                batch_size = auged_batch.shape[0] # 100
+            
+                print("--------------------------------Visualize iter_ i : {}------------------------------".format(iter_i))
 
-            batch_size = auged_batch.shape[0] # 100
-        
-            print("--------------------------------Visualize iter_ i : {}------------------------------".format(iter_i))
+                vis_kind = config.kind #human36m
+                        
+                for batch_i in range(3):
+                    keypoints_vis = vis.visualize_batch(
+                        auged_batch, heatmaps_pred, keypoints_2d_pred, proj_matricies_batch,
+                        keypoints_3d_gt, keypoints_3d_pred,
+                        kind=vis_kind,
+                        cuboids_batch=cuboids_pred,
+                        confidences_batch=confidences_pred,
+                        batch_index=batch_i, size=5,
+                        max_n_cols=10,
+                        augmentation=aug,
+                        iterI = str(iter_i)
+                    )
 
-            vis_kind = config.kind #human36m
-                    
-            for batch_i in range(3):
-                keypoints_vis = vis.visualize_batch(
-                    auged_batch, heatmaps_pred, keypoints_2d_pred, proj_matricies_batch,
-                    keypoints_3d_gt, keypoints_3d_pred,
-                    kind=vis_kind,
-                    cuboids_batch=cuboids_pred,
-                    confidences_batch=confidences_pred,
-                    batch_index=batch_i, size=5,
-                    max_n_cols=10,
-                    augmentation=aug,
-                    iterI = str(iter_i)
-                )
-
-            print("----------------------------------Visualize Finish----------------------------------")
+                print("----------------------------------Visualize Finish----------------------------------")
         
 
 def main(args):
