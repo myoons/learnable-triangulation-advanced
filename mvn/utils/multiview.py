@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import random
 
 
 class Camera:
@@ -139,7 +140,10 @@ def triangulate_point_from_multiple_views_linear(proj_matricies, points):
 
 
 def triangulate_point_from_multiple_views_linear_torch(proj_matricies, points, confidences=None):
-    """Similar as triangulate_point_from_multiple_views_linear() but for PyTorch.
+    """
+    For one Point one Joint!!!!!!!!!!!!!
+
+    Similar as triangulate_point_from_multiple_views_linear() but for PyTorch.
     For more information see its documentation.
     Args:
         proj_matricies torch tensor of shape (N, 3, 4): sequence of projection matricies (3x4)
@@ -165,6 +169,13 @@ def triangulate_point_from_multiple_views_linear_torch(proj_matricies, points, c
     point_3d_homo = -vh[:, 3]
     point_3d = homogeneous_to_euclidean(point_3d_homo.unsqueeze(0))[0]
 
+    if (random.random() < 0) :
+        print('--------------------------------------------------------------\n')
+        print('\t confidences : \t {}'.format(confidences.view(-1, 1, 1)))
+        print('\t points : \t {}'.format(points))
+        print('\t point_3d : \t {}'.format(point_3d))
+        print('\n--------------------------------------------------------------')
+    
     return point_3d
 
 
@@ -174,6 +185,9 @@ def triangulate_batch_of_points(proj_matricies_batch, points_batch, confidences_
 
     for batch_i in range(batch_size):
         for joint_i in range(n_joints):
+
+            # For one Image, one Joint
+
             points = points_batch[batch_i, :, joint_i, :]
 
             confidences = confidences_batch[batch_i, :, joint_i] if confidences_batch is not None else None

@@ -169,7 +169,7 @@ def visualize_batch(images_batch, heatmaps_batch, keypoints_2d_batch, proj_matri
         for view_i in range(n_cols):
             confidences = to_numpy(confidences_batch[batch_index, view_i])
             xs = np.arange(len(confidences))
-
+            print('\t View_I : {} \t Average of Confidences : {} \t Shape : {} \t Augmentation : {}'.format(view_i, np.average(confidences), confidences.shape, augmentation.__class__.__name__))
             axes[row_i, view_i].bar(xs, confidences, color='green')
             axes[row_i, view_i].set_xticks(xs)
             if torch.max(confidences_batch).item() <= 1.0:
@@ -184,7 +184,7 @@ def visualize_batch(images_batch, heatmaps_batch, keypoints_2d_batch, proj_matri
     
     elif augmentation != None:
         
-        results_dir = os.path.join(os.getcwd(),'augs',augmentation.__class__.__name__,iterI)
+        results_dir = os.path.join(os.getcwd(),'augs','Lastly',augmentation.__class__.__name__)
         if not os.path.isdir(results_dir):
             os.makedirs(results_dir)
 
@@ -193,7 +193,6 @@ def visualize_batch(images_batch, heatmaps_batch, keypoints_2d_batch, proj_matri
         plt.close('all')
 
     else:
-
         results_dir = os.path.join(os.getcwd(),'augs','None',iterI)
         if not os.path.isdir(results_dir):
             os.makedirs(results_dir)

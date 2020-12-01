@@ -1,3 +1,6 @@
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import os
 import shutil
 import argparse
@@ -9,6 +12,7 @@ from itertools import islice
 import pickle
 import copy
 
+# from numba import cuda
 import numpy as np
 import cv2
 
@@ -29,6 +33,47 @@ from mvn.utils import img, multiview, op, vis, misc, cfg
 from mvn.datasets import human36m
 from mvn.datasets import utils as dataset_utils
 
+import imgaug
+from imgaug import augmenters as iaa
+
+from scipy.ndimage.filters import gaussian_filter1d
+
+all_loss=[]
+epoch_count=1
+def aug_batch(original_batch, device):
+
+    # original_batch : [100, 4, 3, 384, 384]
+    # transposedImages : [4, 100, 384, 384, 3]
+    transposedImages = original_batch.permute(1,0,3,4,2).cpu().contiguous()
+    auged_batch = []
+    for i in range(7):
+        temp_batch=[]
+        
+        for idx, transposedBatch in enumerate(transposedImages):
+
+            numpyBatch = transposedBatch.numpy()
+
+            if i==0:
+                temp_batch.append(iaa.ReplaceElementwise(0.1, [0, 255], per_channel=0.5).augment_images(images=numpyBatch))
+            elif i==1:
+                temp_batch.append(iaa.MotionBlur(k=15, angle=[-45, 45]).augment_images(images=numpyBatch))
+            elif i==2:
+                temp_batch.append(iaa.GaussianBlur(sigma=(0.0, 3.0)).augment_images(images=numpyBatch))
+            elif i==3:
+                temp_batch.append(iaa.Add((-0.4, 1.5)).augment_images(images=numpyBatch))
+            elif i==4:
+                temp_batch.append(iaa.Fog().augment_images(images=numpyBatch))
+            elif i==5:
+                temp_batch.append(iaa.Snowflakes(flake_size=(0.1, 0.4), speed=(0.01, 0.05)).augment_images(images=numpyBatch))
+            elif i==6:
+                temp_batch.append(iaa.Rain().augment_images(images=numpyBatch))
+
+        temp_batch = torch.FloatTensor(temp_batch)
+        temp_batch = temp_batch.permute(1, 0, 4, 2, 3).contiguous()  # temp_batch : [100, 4, 3, 384, 384]
+        auged_batch.append(temp_batch)
+
+    return auged_batch
+
 # Initializing Parameters
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -36,7 +81,6 @@ def parse_args():
     parser.add_argument("--config", type=str, required=True, help="Path, where config file is stored") 
     parser.add_argument('--eval', action='store_true', help="If set, then only evaluation will be done")
     parser.add_argument('--eval_dataset', type=str, default='val', help="Dataset split on which evaluate. Can be 'train' and 'val'")
-    parser.add_argument("--master", type=str, default='yes', help="If set no, dont' write experiment")
     parser.add_argument("--local_rank", type=int, help="Local rank of the process on the node")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility")
 
@@ -153,8 +197,11 @@ def setup_experiment(config, model_name, is_train=True):
     return experiment_dir, writer
 
 # Code for One Epoch
-def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_total=0, is_train=True, caption='', master=False, experiment_dir=None, writer=None):
-    
+def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_total=0, is_train=True, caption='', master=True, experiment_dir=None, writer=None, fmatch=False, results_dir=None):
+    global epoch_count
+    epoch_start_time = time.time()
+
+    epoch_loss=[]
     # name = "train/val"
     name = "train" if is_train else "val"
     model_type = config.model.name # alg, vol
@@ -173,9 +220,9 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
     with grad_context():
         end = time.time()
 
-        iterator = enumerate(dataloader) # train_loader / val_loader , len(dataloader) :48743
-        if is_train and config.opt.n_iters_per_epoch is not None: # 1875
-            # islice(iterable, start, stop, step) isslice(iterator, 1875) --> index 0 ~ 1874 (1875개) 할당함
+        iterator = enumerate(dataloader) # train_loader / val_loader , len(dataloader) :48743 / 8
+        if is_train and config.opt.n_iters_per_epoch is not None: # 1250
+            # islice(iterable, start, stop, step) isslice(iterator, 1250) --> index 0 ~ 1249 (1249개) 할당함
             iterator = islice(iterator, config.opt.n_iters_per_epoch)
 
         
@@ -201,18 +248,102 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             keypoints_3d_binary_validity_gt : torch.Size([8, 17, 1]) # [batchSize, Joints, Validity of Joints] : Validity of Joints
             proj_matricies_batch : torch.Size([8, 4, 3, 4]) #
             confidences_pred : torch.Size([8, 4, 17]) # [batchSize, Camera, Joint] : Validity of each Joint in each Camera
+            original_confidences :  [8, 4, 17]
             '''
 
             images_batch, keypoints_3d_gt, keypoints_3d_validity_gt, proj_matricies_batch = dataset_utils.prepare_batch(batch, device, config)
             keypoints_2d_pred, cuboids_pred, base_points_pred = None, None, None
 
-            # prediction with model (input)
-            if model_type == "alg" or model_type == "ransac":
+            if epoch <= 3:
+                fmatch=False # epoch 3 ~ 4 이상일 때 True로 만들기
+            else :
+                fmatch=False # 바꾸면됨
+
+            no_trusted_image = False
+
+            if fmatch :
+                auged_batch = aug_batch(images_batch, device) # Currently CPU [7, 8, 4, 3, 384, 384]
+                keypoints_3d_trusted = torch.FloatTensor(size=(8,17,3))
+                batch_array = [[[] for i in range(17)] for i in range(8)]
+                # [ [[0~7개] [] [] [] [] ... []], [[[] ... []]] , [[]...[]] [] [] [] [] []] # Size(3) = x, y, z
+                # Confidence > threshold --> 괜찮은 예측값이다 (Tensor(3), Confidence:평균값) : 예측값
+                # model(input) => predict (지금까지의 계산의 추이, 과정을 담고 있다) --> backward()
+
+                for idx, auged_images in enumerate(auged_batch):
+                    
+                    # auged_batch = [7, 8, 4, 3, 384, 384] / auged_images = [8, 4, 3, 384, 384] 
+                    # original_confidences = [8, 4, 17] / keypoints_3d_pred = [8, 17, 3]
+                    # print('auged_images size : {}'.format(auged_images.size()))
+                    # ** 추이가 담겨져있으면서, 남은 Vector들은 삭제되고 **  
+
+                    auged_images = auged_images.to(device)
+
+                    keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(auged_images, proj_matricies_batch, batch)
+                    batch_size, n_views, image_shape = auged_images.shape[0], auged_images.shape[1], tuple(auged_images.shape[3:])
+                    
+                    # Tensor(x, y, z , grand_fn =<~>)
+                    np_confidence = confidences_pred.clone().detach().cpu().numpy()
+                    del heatmaps_pred, keypoints_2d_pred, confidences_pred
+
+                    for bIdx, confidence in enumerate(np_confidence):
+                        for i in range(17):
+                            confidence_per_joint = confidence[:,i] # [4] : 한 Joint에 대해서..(4개의 Confidence)
+                            # print('confidence_per_joint : {}'.format(confidence_per_joint))
+
+                            with torch.no_grad():
+                                if min(confidence_per_joint) > 0.2 : # Well Predicted Joint = 4개의 Confidence가 모두 Threshold를 넘을 때
+                                    # [(tensor([ -91.6322, -625.5146,   82.1375], device='cuda:0',grad_fn=<SliceBackward>), 0.5038558095693588)]
+                                    # print('keypoints_3d_pred.put() !!!!!!!!!!!!!!!!!!!: {}'.format(keypoints_3d_pred)) # GPU
+                                    # print('Before : {} \t {}'.format(keypoints_3d_pred[bIdx, i, :].grad_fn))
+                                    copy_tensor = keypoints_3d_pred.clone()[bIdx, i, :].to('cpu') # Requires_grad True
+                                    copy_tensor.requires_grad_(True)
+                                    batch_array[bIdx][i].append((copy_tensor, sum(confidence_per_joint).item()/4)) # CPU --> batch_array
+                                    # print('keypoints_3d_pred.put() : {}'.format(keypoints_3d_pred.detach().cpu()[bIdx, i, :])) 
+                                    del copy_tensor
+                    
+                    del keypoints_3d_pred
+                    torch.cuda.empty_cache()
+                    # batch_array : [8,17] 하나의 원소는 (tensor([ -91.6322, -625.5146,   82.1375], device='cuda:0',grad_fn=<SliceBackward>), 0.5038558095693588) 튜플 형태
+                    
+                for batches_idx, batches in enumerate(batch_array):
+                    for joints_idx, joints in enumerate(batches):
+                            
+                        # keypoints_3d_pred = [8, 17, 3]
+                        
+                        with torch.autograd.enable_grad():
+
+                            if len(joints) != 0:
+                                sum_confidence = 0
+                                sum_confidence = sum_confidence
+
+                                for joint in joints:
+                                    sum_confidence += joint[1]
+
+                                over_threshold= joints[0][0] * (joints[0][1]/sum_confidence)               
+
+                                for jIdx, joint in enumerate(joints):
+                                    
+                                    # print('over_threshold : ', over_threshold)
+                                    # print('joint[1] : ', joint[1])
+                                    # print('sum_confidence : ', sum_confidence)
+                                    
+                                    if jIdx != 0 :
+                                        over_threshold = over_threshold + joint[0] * (joint[1]/sum_confidence)
+                                
+                                keypoints_3d_trusted[batches_idx][joints_idx] = over_threshold
+                                # print('over_threshold : ', over_threshold)
+                            else:
+                                no_trusted_image = True
+
+                keypoints_3d_pred = keypoints_3d_trusted.to(device)
+                if no_trusted_image == True:
+                    print("-----------------No Trusted Images---------------------")
+                    continue
+                            
+            else :
                 keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(images_batch, proj_matricies_batch, batch)
-            elif model_type == "vol":
-                keypoints_3d_pred, heatmaps_pred, volumes_pred, confidences_pred, cuboids_pred, coord_volumes_pred, base_points_pred = model(images_batch, proj_matricies_batch, batch)
-                
-            batch_size, n_views, image_shape = images_batch.shape[0], images_batch.shape[1], tuple(images_batch.shape[3:])
+                batch_size, n_views, image_shape = images_batch.shape[0], images_batch.shape[1], tuple(images_batch.shape[3:])
+
             n_joints = keypoints_3d_pred.shape[1]
 
             # If GT validity is bigger than Zero : 1 ? : 0 
@@ -239,12 +370,13 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             # calculate loss
             total_loss = 0.0
             loss = criterion(keypoints_3d_pred * scale_keypoints_3d, keypoints_3d_gt * scale_keypoints_3d, keypoints_3d_binary_validity_gt)
+
             # loss 는 X, Y, Z 오차들의 합(에 몇 숫자 조작을 한 것)
             total_loss += loss
             # metric_dict["MSESmooth"] 에 loss 값을 추가해준다. (list)
             metric_dict[f'{config.opt.criterion}'].append(loss.item()) 
 
-            if (iter_i % 500 == 0) :
+            if (iter_i % 250 == 0) :
                 print('--------------------------------------------------\n')
                 print('Epoch :',epoch,'\t Iter :',iter_i,'\t loss :',total_loss)
                 print('\n--------------------------------------------------')
@@ -259,9 +391,14 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
                 weight = config.opt.volumetric_ce_loss_weight if hasattr(config.opt, "volumetric_ce_loss_weight") else 1.0
                 total_loss += weight * loss
-
+            
             metric_dict['total_loss'].append(total_loss.item())
-
+            
+            if iter_i%62==0 and total_loss.item()<6:
+                all_loss.append(total_loss.item())
+            elif iter_i%25==0 and total_loss.item()<6:
+                epoch_loss.append(total_loss.item())
+                    
             if is_train: # If in Trainloop
                 opt.zero_grad() # input
                 total_loss.backward() # back propagation
@@ -270,7 +407,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                 if hasattr(config.opt, "grad_clip"):
                     torch.nn.utils.clip_grad_norm_(model.parameters(), config.opt.grad_clip / config.opt.lr)
 
-                metric_dict['grad_norm_times_lr'].append(config.opt.lr * misc.calc_gradient_norm(filter(lambda x: x[1].requires_grad, model.named_parameters())))
+                # metric_dict['grad_norm_times_lr'].append(config.opt.lr * misc.calc_gradient_norm(filter(lambda x: x[1].requires_grad, model.named_parameters())))
 
                 opt.step()
 
@@ -278,41 +415,10 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             l2 = KeypointsL2Loss()(keypoints_3d_pred * scale_keypoints_3d, keypoints_3d_gt * scale_keypoints_3d, keypoints_3d_binary_validity_gt)
             metric_dict['l2'].append(l2.item())
 
-            # base point l2
-            if base_points_pred is not None: # if using vol
-                base_point_l2_list = []
-                for batch_i in range(batch_size):
-                    base_point_pred = base_points_pred[batch_i]
-
-                    if config.model.kind == "coco":
-                        base_point_gt = (keypoints_3d_gt[batch_i, 11, :3] + keypoints_3d[batch_i, 12, :3]) / 2
-                    elif config.model.kind == "mpii": # Default
-                        base_point_gt = keypoints_3d_gt[batch_i, 6, :3]
-
-                    base_point_l2_list.append(torch.sqrt(torch.sum((base_point_pred * scale_keypoints_3d - base_point_gt * scale_keypoints_3d) ** 2)).item())
-
-                base_point_l2 = 0.0 if len(base_point_l2_list) == 0 else np.mean(base_point_l2_list)
-                metric_dict['base_point_l2'].append(base_point_l2)
-
             # save answers for evalulation
             if not is_train:
                 results['keypoints_3d'].append(keypoints_3d_pred.detach().cpu().numpy())
                 results['indexes'].append(batch['indexes'])
-
-            """
-            print("-----------------------------Visualize---------------------------------")
-            for batch_i in range(min(batch_size, config.vis_n_elements)):
-                        keypoints_vis = vis.visualize_batch(
-                                        images_batch, heatmaps_pred, keypoints_2d_pred, proj_matricies_batch,
-                                        keypoints_3d_gt, keypoints_3d_pred,
-                                        kind=config.kind,
-                                        cuboids_batch=cuboids_pred,
-                                        confidences_batch=confidences_pred,
-                                        batch_index=batch_i, size=5,
-                                        max_n_cols=10
-                                    )
-            print("------------------------------Visualize Finish---------------------------")
-            """
             
             # plot visualization
             if master: # Base True --> if master : experiment result
@@ -321,39 +427,6 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                     vis_kind = config.kind #human36m
                     if (config.transfer_cmu_to_human36m if hasattr(config, "transfer_cmu_to_human36m") else False):
                         vis_kind = "coco"
-
-                    for batch_i in range(min(batch_size, config.vis_n_elements)):
-                        
-                        keypoints_vis = vis.visualize_batch(
-                            images_batch, heatmaps_pred, keypoints_2d_pred, proj_matricies_batch,
-                            keypoints_3d_gt, keypoints_3d_pred,
-                            kind=vis_kind,
-                            cuboids_batch=cuboids_pred,
-                            confidences_batch=confidences_pred,
-                            batch_index=batch_i, size=5,
-                            max_n_cols=10,
-                            augmentation='train'
-                        )
-                        
-                        writer.add_image(f"{name}/keypoints_vis/{batch_i}", keypoints_vis.transpose(2, 0, 1), global_step=n_iters_total)
-
-                        heatmaps_vis = vis.visualize_heatmaps(
-                            images_batch, heatmaps_pred,
-                            kind=vis_kind,
-                            batch_index=batch_i, size=5,
-                            max_n_rows=10, max_n_cols=10
-                        )
-                        writer.add_image(f"{name}/heatmaps/{batch_i}", heatmaps_vis.transpose(2, 0, 1), global_step=n_iters_total)
-
-                        if model_type == "vol":
-                            volumes_vis = vis.visualize_volumes(
-                                images_batch, volumes_pred, proj_matricies_batch,
-                                kind=vis_kind,
-                                cuboids_batch=cuboids_pred,
-                                batch_index=batch_i, size=5,
-                                max_n_rows=1, max_n_cols=16
-                            )
-                            writer.add_image(f"{name}/volumes/{batch_i}", volumes_vis.transpose(2, 0, 1), global_step=n_iters_total)
 
                 # dump weights to tensoboard
                 if n_iters_total % config.vis_freq == 0:
@@ -383,7 +456,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                 writer.add_scalar(f"{name}/batch_size", batch_size, n_iters_total)
                 writer.add_scalar(f"{name}/n_views", n_views, n_iters_total)
 
-                n_iters_total += 1
+            n_iters_total += 1
 
     # calculate evaluation metrics
     if master:
@@ -414,6 +487,18 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
         for title, value in metric_dict.items():
             writer.add_scalar(f"{name}/{title}_epoch", np.mean(value), epoch)
 
+    fig = plt.figure()
+    fig.xlabel=('steps')
+    fig.ylabel=('loss')
+    ax = fig.add_subplot(111)
+    ax.plot(epoch_loss)
+    fig.savefig(results_dir+'/'+'epoch_loss'+str(epoch_count)+'.png')
+    epoch_count+=1
+    matplotlib.pyplot.close(fig)
+
+    epoch_finish_time = time.time()
+
+    print( '\n Epoch : {} Finished \t Duration : {} \n'.format(epoch, epoch_finish_time-epoch_start_time))
     return n_iters_total
 
 
@@ -441,11 +526,12 @@ def init_distributed(args):
 def main(args):
     print("**** Number of available GPUs: {} ****".format(torch.cuda.device_count()))
 
+    results_dir = os.path.join(os.getcwd(),'results','30epochs')
+    if not os.path.isdir(results_dir):
+        os.makedirs(results_dir)
+
     is_distributed = init_distributed(args)
-    if args.master != 'yes':
-        master = False
-    else :
-        master = True
+    master = True
 
     print("****Master : {}****".format(master))
 
@@ -459,7 +545,7 @@ def main(args):
 
     # config
     config = cfg.load_config(args.config) # config file
-    config.opt.n_iters_per_epoch = config.opt.n_objects_per_epoch // config.opt.batch_size 
+    config.opt.n_iters_per_epoch = config.opt.n_objects_per_epoch // config.opt.batch_size # 1250
     print("**** n_iters_per_epoch : {} **** ".format(config.opt.n_iters_per_epoch)) 
 
     # Select model based on parameters
@@ -554,8 +640,7 @@ def main(args):
             print('*******************************************************************************************************\n')
             print("Start Epoch : {} \t is_train : True \t n_iters_total_train : {} \t  n_iters_total_val : {}".format(epoch, n_iters_total_train, n_iters_total_val))
 
-            n_iters_total_train = one_epoch(model, criterion, opt, config, train_dataloader, device, epoch, n_iters_total=n_iters_total_train, is_train=True, master=master, experiment_dir=experiment_dir, writer=writer)
-            n_iters_total_val = one_epoch(model, criterion, opt, config, val_dataloader, device, epoch, n_iters_total=n_iters_total_val, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
+            n_iters_total_train = one_epoch(model, criterion, opt, config, train_dataloader, device, epoch, n_iters_total=n_iters_total_train, is_train=True, master=True, experiment_dir=experiment_dir, writer=writer, results_dir=results_dir)
 
             print("Finish Epoch : {} \t is_train : True \t n_iters_total_train : {} \t  n_iters_total_val : {}".format(epoch, n_iters_total_train, n_iters_total_val))
             print('\n*******************************************************************************************************')
@@ -575,9 +660,37 @@ def main(args):
 
         if args.eval_dataset == 'train':
             # (model, criterion, opt, config, dataloader, device, epoch, n_iters_total=0, is_train=True, caption='', master=False, experiment_dir=None, writer=None)
-            one_epoch(model, criterion, opt, config, train_dataloader, device, epoch=0, n_iters_total=0, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
+            n_iters_total_train = one_epoch(model, criterion, opt, config, train_dataloader, device, epoch=0, n_iters_total=0, is_train=True, master=master, experiment_dir=experiment_dir, writer=writer, results_dir=results_dir)
         else: # Default
-            one_epoch(model, criterion, opt, config, val_dataloader, device, epoch=0, n_iters_total=0, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
+            n_iters_total_train = one_epoch(model, criterion, opt, config, val_dataloader, device, epoch=0, n_iters_total=0, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer, results_dir=results_dir)
+    
+    fig = plt.figure()
+    fig.xlabel=('steps')
+    fig.ylabel=('loss')
+    ax = fig.add_subplot(111)
+    ax.plot(all_loss)
+    fig.savefig(results_dir+'/'+'all_loss.png')
+    matplotlib.pyplot.close(fig)
+
+    smooth_all_loss = gaussian_filter1d(topFiveValMM, sigma=1)
+
+    fig = plt.figure()
+    fig.xlabel=('steps')
+    fig.ylabel=('loss')
+    ax = fig.add_subplot(111)
+    ax.plot(smooth_all_loss)
+    fig.savefig(results_dir+'/'+'smooth_all_loss.png')
+    matplotlib.pyplot.close(fig)
+
+    smoother_all_loss = gaussian_filter1d(topFiveValMM, sigma=2)
+
+    fig = plt.figure()
+    fig.xlabel=('steps')
+    fig.ylabel=('loss')
+    ax = fig.add_subplot(111)
+    ax.plot(smoother_all_loss)
+    fig.savefig(results_dir+'/'+'smoother_all_loss.png')
+    matplotlib.pyplot.close(fig)
 
     print("""
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

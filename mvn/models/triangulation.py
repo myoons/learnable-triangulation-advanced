@@ -167,11 +167,17 @@ class AlgebraicTriangulationNet(nn.Module):
         images = images.view(batch_size, n_views, *images.shape[1:])
         heatmaps = heatmaps.view(batch_size, n_views, *heatmaps.shape[1:])
         keypoints_2d = keypoints_2d.view(batch_size, n_views, *keypoints_2d.shape[1:])
-        alg_confidences = alg_confidences.view(batch_size, n_views, *alg_confidences.shape[1:])
+        alg_confidences = alg_confidences.view(batch_size, n_views, *alg_confidences.shape[1:]) # [8, 4, 17]
 
+        """
+        print('alg_confidences size : {}'.format(alg_confidences.size())) 
+        print('alg_confidences : {}'.format(alg_confidences[0]))
+        """
         # norm confidences
         alg_confidences = alg_confidences / alg_confidences.sum(dim=1, keepdim=True)
         alg_confidences = alg_confidences + 1e-5  # for numerical stability
+
+        # print('alg_confidences norm : {}'.format(alg_confidences[0]))
 
         # calcualte shapes
         image_shape = tuple(images.shape[3:])
