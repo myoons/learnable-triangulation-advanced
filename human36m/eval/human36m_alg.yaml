@@ -13,7 +13,7 @@ opt:
   n_epochs: 9999
 
   batch_size: 8
-  val_batch_size: 100
+  val_batch_size: 20
 
   lr: 0.00001
 
@@ -23,7 +23,7 @@ model:
   name: "alg"
 
   init_weights: true
-  checkpoint: "./data/pretrained/human36m/human36m_alg_10-04-2019/checkpoints/0060/weights.pth"
+  checkpoint: "logs/base/human36m_alg_AlgebraicTriangulationNet@29.11.2020-18:53:30/checkpoints/0009/weights.pth"
 
   use_confidences: true
   heatmap_multiplier: 100.0

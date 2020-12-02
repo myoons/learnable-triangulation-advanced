@@ -137,40 +137,24 @@ def aug_vis(model, config, dataloader, device, aug):
             images_batch, keypoints_3d_gt, keypoints_3d_validity_gt, proj_matricies_batch = dataset_utils.prepare_batch(batch, device, config)
             keypoints_2d_pred, cuboids_pred, base_points_pred = None, None, None
 
-            auged_batch_proto = aug_batch(images_batch, device) # [7, batchSize, 4, 3, 384, 384]
+            if model_type == "alg" or model_type == "ransac":
+                keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(images_batch, proj_matricies_batch, batch)
+            elif model_type == "vol":
+                keypoints_3d_pred, heatmaps_pred, volumes_pred, confidences_pred, cuboids_pred, coord_volumes_pred, base_points_pred = model(auged_batch, proj_matricies_batch, batch)
 
-            augList = []
-            augList.append(iaa.ReplaceElementwise(0.1, [0, 255], per_channel=0.5))
-            augList.append(iaa.MotionBlur(k=15, angle=[-45, 45]))
-            augList.append(iaa.GaussianBlur(sigma=(0.0, 3.0)))
-            augList.append(iaa.Add((-0.4, 1.5)))
-            augList.append(iaa.Fog())
-            augList.append(iaa.Snowflakes(flake_size=(0.1, 0.4), speed=(0.01, 0.05)))
-            augList.append(iaa.Rain())
-
-            for bIdx, auged_batch in enumerate(auged_batch_proto): # [batchSize, 4, 3, 384, 384]
-                # prediction with model (input)
-                if model_type == "alg" or model_type == "ransac":
-                    keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(auged_batch, proj_matricies_batch, batch)
-                elif model_type == "vol":
-                    keypoints_3d_pred, heatmaps_pred, volumes_pred, confidences_pred, cuboids_pred, coord_volumes_pred, base_points_pred = model(auged_batch, proj_matricies_batch, batch)
-
-                np_confidence = confidences_pred.detach().cpu().numpy()
-                
-                for i in range(3):
-
-                    keypoints_vis = vis.visualize_batch(
-                        auged_batch, heatmaps_pred, keypoints_2d_pred, proj_matricies_batch,
-                        keypoints_3d_gt, keypoints_3d_pred,
-                        kind='human36m',
-                        cuboids_batch=cuboids_pred,
-                        confidences_batch=confidences_pred,
-                        batch_index=i, size=5,
-                        max_n_cols=10,
-                        augmentation=augList[bIdx]
-                    )
+            np_confidence = confidences_pred.detach().cpu().numpy()
             
-            break
+            for i in range(3):
+                keypoints_vis = vis.visualize_batch(
+                    images_batch, heatmaps_pred, keypoints_2d_pred, proj_matricies_batch,
+                    keypoints_3d_gt, keypoints_3d_pred,
+                    kind='human36m',
+                    cuboids_batch=cuboids_pred,
+                    confidences_batch=confidences_pred,
+                    batch_index=i, size=5,
+                    max_n_cols=10,
+                    iterI=i
+                )
         
 
 def main(args):
