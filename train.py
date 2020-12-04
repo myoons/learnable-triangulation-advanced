@@ -88,8 +88,8 @@ def select_intensity(idx):
         return iaa.color.MultiplyHue(mul=mul)
     
     elif idx == 9:
-        kelvin = randint(1000, 11000)
-        return iaa.color.ChangeColorTemperature(kelvin=kelvin)
+        value = randint(-255, 255)
+        return iaa.color.AddToHue(value=value)
 
     elif idx == 10:
         return iaa.arithmetic.Invert()
@@ -100,11 +100,10 @@ def aug_batch(original_batch, device):
     # original_batch : [8, 4, 3, 384, 384]
     # transposedImages : [8, 4, 384, 384, 3]
     transposedImages = original_batch.permute(0,1,3,4,2)
-    auged_batch = []
             
     for batch_idx, transposedBatch in enumerate(transposedImages): # [4, 384, 384, 3]
         
-        numpy_batch = cv2.normalize(transposedBatch.numpy(), None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U) # [4, 384, 384, 3]
+        numpy_batch = cv2.normalize(transposedBatch.cpu().numpy(), None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U) # [4, 384, 384, 3]
         
         # augmentation 고정
         selected_augmentation = randint(0,10) # 11가지 augmentation
@@ -113,10 +112,9 @@ def aug_batch(original_batch, device):
         # augmented image
         result = aug.augment_images(images=numpy_batch) 
 
-        auged_batch.append(torch.tensor(np.array(result, dtype='float32') / 255))
+        original_batch[batch_idx] = torch.tensor(np.array(result, dtype='float32') / 255).permute(0, 3, 1, 2)
 
-    # 현재 [8, 4, 384, 384, 3]
-    return torch.tensor(auged_batch.permute(0, 1, 4, 2, 3))
+    return torch.tensor(original_batch)
 
 # Initializing Parameters
 def parse_args():
@@ -278,18 +276,20 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             if batch is None:
                 print("Found None batch")
                 continue
-                
+            
+            # batch['cameras']
+
             images_batch, keypoints_3d_gt, keypoints_3d_validity_gt, proj_matricies_batch = dataset_utils.prepare_batch(batch, device, config)
             keypoints_2d_pred, cuboids_pred, base_points_pred = None, None, None
 
-            if epoch <= 3:
+            if epoch <= 5:
                 fmatch=False # epoch 3 ~ 4 이상일 때 True로 만들기
             else :
-                fmatch=False # 바꾸면됨
+                fmatch=True # 바꾸면됨
 
             if fmatch :
-                auged_batch = aug_batch(images_batch, device).to(device) # Currently CPU [7, 8, 4, 3, 384, 384]
-                keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(auged_batch, proj_matricies_batch, batch)
+                images_batch = aug_batch(images_batch, device).to(device) # Currently CPU [7, 8, 4, 3, 384, 384]
+                keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(images_batch, proj_matricies_batch, batch)
                 batch_size, n_views, image_shape = images_batch.shape[0], images_batch.shape[1], tuple(images_batch.shape[3:])
 
             else :
@@ -424,9 +424,8 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                             exit()
 
                 # dump to tensorboard per-iter loss/metric stats
-                if is_train:
-                    for title, value in metric_dict.items():
-                        writer.add_scalar(f"{name}/{title}", value[-1], n_iters_total)
+                for title, value in metric_dict.items():
+                    writer.add_scalar(f"{name}/{title}", value[-1], n_iters_total)
 
                 # measure elapsed time
                 batch_time = time.time() - end
@@ -442,6 +441,9 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
                 n_iters_total += 1
 
+            if iter_i >= 2000:
+                break
+                
     # calculate evaluation metrics
     if master:
         if not is_train:
