@@ -37,39 +37,79 @@ import imgaug
 from imgaug import augmenters as iaa
 
 from scipy.ndimage.filters import gaussian_filter1d
+from random import *
 
 all_loss=[]
 epoch_count=1
+
+def select_intensity(idx):
+
+    if idx == 0:
+        value = randint(-20, 20)
+        return iaa.Add(value=value)
+    
+    elif idx == 1:
+        mul = uniform(0.8, 1.2)
+        return iaa.Multiply(mul=mul)
+    
+    elif idx == 2:
+        sigma = uniform(0.0, 3.0)
+        return iaa.GaussianBlur(sigma=sigma)
+    
+    elif idx == 3:
+        k = randint(3, 7)
+        angle= randint(0, 360)
+        direction = uniform(-1.0, 1.0)
+        order=1
+        return iaa.MotionBlur(k=k, angle=angle, direction=direction, order=order)
+
+    elif idx == 4:
+        alpha = uniform(0.0, 1.0)
+        return iaa.Grayscale(alpha=alpha)
+    
+    elif idx == 5:
+        gain = randint(3, 10)
+        cutoff = uniform(0.4, 0.6)
+        return iaa.SigmoidContrast(gain=gain, cutoff=cutoff)
+    
+    elif idx == 6:
+        gain = uniform(0.6, 1.4)
+        return iaa.LogContrast(gain=gain)
+    
+    elif idx == 7:
+        alpha = uniform(0.0, 1.0)
+        lightness = uniform(0.75, 2.0)
+        return iaa.Sharpen(alpha=alpha, lightness=lightness)
+    
+    elif idx == 8:
+        mul = uniform(-3.0, 3.0)
+        return iaa.color.MultiplyHue(mul=mul)
+    
+    elif idx == 9:
+        value = randint(-255, 255)
+        return iaa.color.AddToHue(value=value)
+
+    elif idx == 10:
+        return iaa.arithmetic.Invert()
+
+
 def aug_batch(original_batch, device):
 
     # original_batch : [100, 4, 3, 384, 384]
     # transposedImages : [4, 100, 384, 384, 3]
-    transposedImages = original_batch.permute(1,0,3,4,2).cpu().contiguous()
+    transposedImages = original_batch.permute(1,0,3,4,2).contiguous()
+
     auged_batch = []
-    for i in range(7):
+
+    for i in range(11):
         temp_batch=[]
         
         for idx, transposedBatch in enumerate(transposedImages):
 
-            numpyBatch = transposedBatch.numpy()
+            numpy_batch = cv2.normalize(transposedBatch.cpu().numpy(), None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U) # [4, 384, 384, 3]
+            temp_batch.append(select_intensity(i).augment_images(numpy_batch))
 
-            if i==0:
-                temp_batch.append(iaa.ReplaceElementwise(0.1, [0, 255], per_channel=0.5).augment_images(images=numpyBatch))
-            elif i==1:
-                temp_batch.append(iaa.MotionBlur(k=15, angle=[-45, 45]).augment_images(images=numpyBatch))
-            elif i==2:
-                temp_batch.append(iaa.GaussianBlur(sigma=(0.0, 3.0)).augment_images(images=numpyBatch))
-            elif i==3:
-                temp_batch.append(iaa.Add((-0.4, 1.5)).augment_images(images=numpyBatch))
-            elif i==4:
-                temp_batch.append(iaa.Fog().augment_images(images=numpyBatch))
-            elif i==5:
-                temp_batch.append(iaa.Snowflakes(flake_size=(0.1, 0.4), speed=(0.01, 0.05)).augment_images(images=numpyBatch))
-            elif i==6:
-                temp_batch.append(iaa.Rain().augment_images(images=numpyBatch))
-
-        temp_batch = torch.FloatTensor(temp_batch)
-        temp_batch = temp_batch.permute(1, 0, 4, 2, 3).contiguous()  # temp_batch : [100, 4, 3, 384, 384]
+        temp_batch = torch.tensor(np.array(temp_batch, dtype='float32') / 255).permute(1, 0, 4, 2, 3).contiguous() # temp_batch : [100, 4, 3, 384, 384]
         auged_batch.append(temp_batch)
 
     return auged_batch
@@ -254,10 +294,10 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             images_batch, keypoints_3d_gt, keypoints_3d_validity_gt, proj_matricies_batch = dataset_utils.prepare_batch(batch, device, config)
             keypoints_2d_pred, cuboids_pred, base_points_pred = None, None, None
 
-            if epoch <= 3:
-                fmatch=False # epoch 3 ~ 4 이상일 때 True로 만들기
+            if epoch <= 5:
+                fmatch=True # epoch 3 ~ 4 이상일 때 True로 만들기
             else :
-                fmatch=False # 바꾸면됨
+                fmatch=True # 바꾸면됨
 
             no_trusted_image = False
 

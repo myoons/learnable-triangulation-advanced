@@ -9,7 +9,7 @@ opt:
   criterion: "MSESmooth"
   mse_smooth_threshold: 400
 
-  n_objects_per_epoch: 15000
+  n_objects_per_epoch: 10000
   n_epochs: 30
 
   batch_size: 8
