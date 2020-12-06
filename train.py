@@ -278,14 +278,12 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                 continue
             
             # batch['cameras']
-
+            # [8, 4, ~, ~, 3]
+            
             images_batch, keypoints_3d_gt, keypoints_3d_validity_gt, proj_matricies_batch = dataset_utils.prepare_batch(batch, device, config)
             keypoints_2d_pred, cuboids_pred, base_points_pred = None, None, None
 
-            if epoch <= 5:
-                fmatch=False # epoch 3 ~ 4 이상일 때 True로 만들기
-            else :
-                fmatch=True # 바꾸면됨
+            fmatch = True
 
             if fmatch :
                 images_batch = aug_batch(images_batch, device).to(device) # Currently CPU [7, 8, 4, 3, 384, 384]
@@ -607,7 +605,7 @@ def main(args):
             print("Start Epoch : {} \t is_train : True \t n_iters_total_train : {} \t  n_iters_total_val : {}".format(epoch, n_iters_total_train, n_iters_total_val))
 
             n_iters_total_train = one_epoch(model, criterion, opt, config, train_dataloader, device, epoch, n_iters_total=n_iters_total_train, is_train=True, master=master, experiment_dir=experiment_dir, writer=writer, results_dir=results_dir)
-            n_iters_total_val = one_epoch(model, criterion, opt, config, val_dataloader, device, epoch, n_iters_total=n_iters_total_val, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer, results_dir=results_dir)
+            # n_iters_total_val = one_epoch(model, criterion, opt, config, val_dataloader, device, epoch, n_iters_total=n_iters_total_val, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer, results_dir=results_dir)
 
             if master:
                 checkpoint_dir = os.path.join(experiment_dir, "checkpoints", "{:04}".format(epoch))
