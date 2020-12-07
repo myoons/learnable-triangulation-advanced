@@ -16,6 +16,8 @@ from mpl_toolkits.mplot3d import axes3d, Axes3D
 
 from mvn.utils.img import image_batch_to_numpy, to_numpy, denormalize_image, resize_image
 from mvn.utils.multiview import project_3d_points_to_image_plane_without_distortion
+from matplotlib.axes._axes import _log as matplotlib_axes_logger
+
 
 CONNECTIVITY_DICT = {
     'cmu': [(0, 2), (0, 9), (1, 0), (1, 17), (2, 12), (3, 0), (4, 3), (5, 4), (6, 2), (7, 6), (8, 7), (9, 10), (10, 11), (12, 13), (13, 14), (15, 1), (16, 15), (17, 18)],
@@ -321,7 +323,7 @@ def draw_2d_pose(keypoints, ax, kind='cmu', keypoints_mask=None, point_size=2, l
         ax.set_xlim([-radius + xroot, radius + xroot])
         ax.set_ylim([-radius + yroot, radius + yroot])
 
-    ax.set_aspect('equal')
+    # ax.set_aspect('equal')
 
 
 def draw_2d_pose_cv2(keypoints, canvas, kind='cmu', keypoints_mask=None, point_size=2, point_color=(255, 255, 255), line_width=1, radius=None, color=None, anti_aliasing_scale=1):
@@ -379,8 +381,10 @@ def draw_2d_pose_cv2(keypoints, canvas, kind='cmu', keypoints_mask=None, point_s
 
 
 def draw_3d_pose(keypoints, ax, keypoints_mask=None, kind='cmu', radius=None, root=None, point_size=2, line_width=2, draw_connections=True):
+    
     connectivity = CONNECTIVITY_DICT[kind]
-
+    matplotlib_axes_logger.setLevel('ERROR')
+    
     if keypoints_mask is None:
         keypoints_mask = [True] * len(keypoints)
 
@@ -399,22 +403,6 @@ def draw_3d_pose(keypoints, ax, keypoints_mask=None, kind='cmu', radius=None, ro
 
                 ax.plot(xs, ys, zs, lw=line_width, c=color)
 
-        if kind == 'coco':
-            mid_collarbone = (keypoints[5, :] + keypoints[6, :]) / 2
-            nose = keypoints[0, :]
-
-            xs, ys, zs = [np.array([nose[j], mid_collarbone[j]]) for j in range(3)]
-
-            if kind in COLOR_DICT:
-                color = (153, 0, 51)
-            else:
-                color = (0, 0, 255)
-
-            color = np.array(color) / 255
-
-            ax.plot(xs, ys, zs, lw=line_width, c=color)
-
-
     ax.scatter(keypoints[keypoints_mask][:, 0], keypoints[keypoints_mask][:, 1], keypoints[keypoints_mask][:, 2],
                s=point_size, c=np.array([230, 145, 56])/255, edgecolors='black')  # np.array([230, 145, 56])/255
 
@@ -425,8 +413,6 @@ def draw_3d_pose(keypoints, ax, keypoints_mask=None, kind='cmu', radius=None, ro
         ax.set_xlim([-radius + xroot, radius + xroot])
         ax.set_ylim([-radius + yroot, radius + yroot])
         ax.set_zlim([-radius + zroot, radius + zroot])
-
-    ax.set_aspect('equal')
 
 
     # Get rid of the panes

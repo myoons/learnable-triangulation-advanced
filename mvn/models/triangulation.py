@@ -146,7 +146,7 @@ class AlgebraicTriangulationNet(nn.Module):
         self.heatmap_multiplier = config.model.heatmap_multiplier
 
 
-    def forward(self, images, proj_matricies, batch):
+    def forward(self, images, proj_matricies):
         device = images.device
         batch_size, n_views = images.shape[:2]
 

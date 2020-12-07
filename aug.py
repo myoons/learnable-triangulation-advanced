@@ -119,7 +119,7 @@ def aug_batch(original_batch, device):
     return auged_batch
 
 
-def aug_vis(model, config, dataloader, device, aug):
+def aug_vis(model, config, dataloader, device):
     
     model_type = config.model.name # alg, vol
     model.eval()
@@ -128,6 +128,9 @@ def aug_vis(model, config, dataloader, device, aug):
 
         iterator = enumerate(dataloader) # train_loader / val_loader , len(dataloader) :48743
         # 한 배치당 image 100개
+        
+        frame = 0
+
         for iter_i, batch in iterator: # enumerate(dataloader) , batch : Dictionary {key : images, detections, cameras, keypoints_3d, indexes}
             
             if batch is None:
@@ -137,42 +140,24 @@ def aug_vis(model, config, dataloader, device, aug):
             images_batch, keypoints_3d_gt, keypoints_3d_validity_gt, proj_matricies_batch = dataset_utils.prepare_batch(batch, device, config)
             keypoints_2d_pred, cuboids_pred, base_points_pred = None, None, None
 
-            print('aaaaaaaaaaaaaaaaaaaa : ', proj_matricies_batch.size())
-
-            auged_batch_proto = aug_batch(images_batch, device) # [7, batchSize, 4, 3, 384, 384]
-
-            augList = []
-            augList.append(iaa.ReplaceElementwise(0.1, [0, 255], per_channel=0.5))
-            augList.append(iaa.MotionBlur(k=15, angle=[-45, 45]))
-            augList.append(iaa.GaussianBlur(sigma=(0.0, 3.0)))
-            augList.append(iaa.Add((-0.4, 1.5)))
-            augList.append(iaa.Fog())
-            augList.append(iaa.Snowflakes(flake_size=(0.1, 0.4), speed=(0.01, 0.05)))
-            augList.append(iaa.Rain())
-
-            for bIdx, auged_batch in enumerate(auged_batch_proto): # [batchSize, 4, 3, 384, 384]
-                # prediction with model (input)
-                if model_type == "alg" or model_type == "ransac":
-                    keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(auged_batch, proj_matricies_batch, batch)
-                elif model_type == "vol":
-                    keypoints_3d_pred, heatmaps_pred, volumes_pred, confidences_pred, cuboids_pred, coord_volumes_pred, base_points_pred = model(auged_batch, proj_matricies_batch, batch)
-
-                np_confidence = confidences_pred.detach().cpu().numpy()
-                
-                for i in range(3):
-
-                    keypoints_vis = vis.visualize_batch(
-                        auged_batch, heatmaps_pred, keypoints_2d_pred, proj_matricies_batch,
-                        keypoints_3d_gt, keypoints_3d_pred,
-                        kind='human36m',
-                        cuboids_batch=cuboids_pred,
-                        confidences_batch=confidences_pred,
-                        batch_index=i, size=5,
-                        max_n_cols=10,
-                        augmentation=augList[bIdx]
-                    )
+            keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(images_batch, proj_matricies_batch)
             
-            break
+            # print('images_batch : {}'.format(images_batch.size())) # [batchsize, 4, 3, 384, 384]
+            # print('proj_matricies_batch : {}'.format(proj_matricies_batch.size())) # [batchsize, 4, 3, 4])
+            # print('keypoints_3d_pred : {}'.format(keypoints_3d_pred.size())) # [batchsize, 17, 3])
+            
+            for idx, keypoint in enumerate(keypoints_3d_pred): 
+                
+                ax = plt.axes(projection='3d')  
+
+                print('Frame : {}'.format(frame))
+                vis.draw_3d_pose(keypoint.cpu(), ax, keypoints_mask=None, kind='human36m', radius=None, root=None, point_size=2, line_width=2, draw_connections=True)
+
+                plt.savefig('vis_3d/{}'.format(str(frame)))
+                frame += 1
+                plt.close()
+
+            
         
 
 def main(args):
@@ -227,7 +212,7 @@ def main(args):
     val_dataloader = DataLoader(
         val_dataset,
         batch_size=config.opt.val_batch_size if hasattr(config.opt, "val_batch_size") else config.opt.batch_size,
-        shuffle=config.dataset.val.shuffle,
+        shuffle=False,
         collate_fn=dataset_utils.make_collate_fn(randomize_n_views=config.dataset.val.randomize_n_views,
                                                     min_n_views=config.dataset.val.min_n_views,
                                                     max_n_views=config.dataset.val.max_n_views),
@@ -240,8 +225,7 @@ def main(args):
     if is_distributed:
         model = DistributedDataParallel(model, device_ids=[device])
 
-    aug = iaa.imgcorruptlike.GaussianNoise(severity=2)
-    aug_vis(model, config, val_dataloader, device, aug)
+    aug_vis(model, config, val_dataloader, device)
 
 
 if __name__ == '__main__':

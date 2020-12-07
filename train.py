@@ -49,49 +49,16 @@ def select_intensity(idx):
         return iaa.Add(value=value)
     
     elif idx == 1:
-        mul = uniform(0.8, 1.2)
-        return iaa.Multiply(mul=mul)
-    
-    elif idx == 2:
         sigma = uniform(0.0, 3.0)
         return iaa.GaussianBlur(sigma=sigma)
-    
-    elif idx == 3:
-        k = randint(3, 7)
-        angle= randint(0, 360)
-        direction = uniform(-1.0, 1.0)
-        order=1
-        return iaa.MotionBlur(k=k, angle=angle, direction=direction, order=order)
 
-    elif idx == 4:
+    elif idx == 2:
         alpha = uniform(0.0, 1.0)
         return iaa.Grayscale(alpha=alpha)
-    
-    elif idx == 5:
-        gain = randint(3, 10)
-        cutoff = uniform(0.4, 0.6)
-        return iaa.SigmoidContrast(gain=gain, cutoff=cutoff)
-    
-    elif idx == 6:
+
+    elif idx == 3:
         gain = uniform(0.6, 1.4)
         return iaa.LogContrast(gain=gain)
-    
-    elif idx == 7:
-        alpha = uniform(0.0, 1.0)
-        lightness = uniform(0.75, 2.0)
-        return iaa.Sharpen(alpha=alpha, lightness=lightness)
-    
-    elif idx == 8:
-        mul = uniform(-3.0, 3.0)
-        return iaa.color.MultiplyHue(mul=mul)
-    
-    elif idx == 9:
-        value = randint(-255, 255)
-        return iaa.color.AddToHue(value=value)
-
-    elif idx == 10:
-        return iaa.arithmetic.Invert()
-
 
 def aug_batch(original_batch, device):
 
@@ -101,7 +68,7 @@ def aug_batch(original_batch, device):
 
     auged_batch = []
 
-    for i in range(11):
+    for i in range(4):
         temp_batch=[]
         
         for idx, transposedBatch in enumerate(transposedImages):
@@ -295,7 +262,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             keypoints_2d_pred, cuboids_pred, base_points_pred = None, None, None
 
             if epoch <= 5:
-                fmatch=True # epoch 3 ~ 4 이상일 때 True로 만들기
+                fmatch=False # epoch 3 ~ 4 이상일 때 True로 만들기
             else :
                 fmatch=True # 바꾸면됨
 
@@ -318,7 +285,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
                     auged_images = auged_images.to(device)
 
-                    keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(auged_images, proj_matricies_batch, batch)
+                    keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(auged_images, proj_matricies_batch)
                     batch_size, n_views, image_shape = auged_images.shape[0], auged_images.shape[1], tuple(auged_images.shape[3:])
                     
                     # Tensor(x, y, z , grand_fn =<~>)
@@ -381,7 +348,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                     continue
                             
             else :
-                keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(images_batch, proj_matricies_batch, batch)
+                keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(images_batch, proj_matricies_batch)
                 batch_size, n_views, image_shape = images_batch.shape[0], images_batch.shape[1], tuple(images_batch.shape[3:])
 
             n_joints = keypoints_3d_pred.shape[1]
