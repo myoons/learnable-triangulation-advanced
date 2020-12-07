@@ -140,6 +140,7 @@ class Human36MMultiViewDataset(Dataset):
                 self.h36m_root, subject, action, 'imageSequence' + '-undistorted' * self.undistort_images,
                 camera_name, 'img_%06d.jpg' % (frame_idx+1))
             assert os.path.isfile(image_path), '%s doesn\'t exist' % image_path
+
             image = cv2.imread(image_path)
 
             # load camera

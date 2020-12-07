@@ -139,7 +139,7 @@ def aug_vis(model, config, dataloader, device):
 
             images_batch, keypoints_3d_gt, keypoints_3d_validity_gt, proj_matricies_batch = dataset_utils.prepare_batch(batch, device, config)
             keypoints_2d_pred, cuboids_pred, base_points_pred = None, None, None
-
+            
             keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(images_batch, proj_matricies_batch)
             
             # print('images_batch : {}'.format(images_batch.size())) # [batchsize, 4, 3, 384, 384]
@@ -153,9 +153,21 @@ def aug_vis(model, config, dataloader, device):
                 print('Frame : {}'.format(frame))
                 vis.draw_3d_pose(keypoint.cpu(), ax, keypoints_mask=None, kind='human36m', radius=None, root=None, point_size=2, line_width=2, draw_connections=True)
 
-                plt.savefig('vis_3d/{}'.format(str(frame)))
+                plt.savefig('vis_36m/vis_3d_fmatch/{}'.format(str(frame)))
                 frame += 1
                 plt.close()
+
+            """
+            for idx, keypoint in enumerate(keypoints_2d_pred):
+                for camera_idx, images in enumerate(keypoint):
+                    ax = plt.axes()  
+                    vis.draw_2d_pose(images.cpu(), ax, kind='human36m')
+                    plt.savefig('vis_2d/{}'.format(str(frame)))
+                    plt.close()
+
+                    frame += 1
+                    print('Frame : {}'.format(frame))
+            """
 
             
         

@@ -129,3 +129,6 @@ predicts
 fatboy
 
 vis_*
+test_images
+fatboy2
+*.avi

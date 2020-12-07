@@ -4,8 +4,8 @@ import os
 from os.path import isfile, join
 
 
-pathIn= 'vis_3d/'
-pathOut = 'vis_test.mp4'
+pathIn= '/volume/cs409/vis_fatboy/vis_fatboy_base/'
+pathOut = 'fatboy_base.avi'
 
 fps = 40
 frame_array = []

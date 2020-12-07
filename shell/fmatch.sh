@@ -1,4 +1,4 @@
 sudo python3 aug.py \
   --eval --eval_dataset val \
-  --config human36m/eval/human36m_aug.yaml \
+  --config human36m/eval/human36m_fmatch.yaml \
   --logdir ./augs

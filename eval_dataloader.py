@@ -14,6 +14,9 @@ from mvn.models.triangulation import AlgebraicTriangulationNet
 
 from ccreate import finalize
 
+import PIL
+from PIL import Image
+
 # Initializing Parameters
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -49,50 +52,50 @@ def init_distributed(args):
 
 def set_dataloader(config):
 
-    dataset_1 = torchvision.datasets.ImageFolder(root='fatboy/camera_1',
+    dataset_1 = torchvision.datasets.ImageFolder(root='fatboy2/camera_1',
                                             transform=transforms.Compose([
                                             transforms.Resize((384,384)),
                                             transforms.ToTensor(),
                                             ]))
 
     dataloader_1 = torch.utils.data.DataLoader(dataset=dataset_1,
-                                                    batch_size=config.opt.val_batch_size if hasattr(config.opt, "val_batch_size") else config.opt.batch_size,
+                                                    batch_size=5,
                                                     shuffle=False,
                                                     drop_last = True
                                                     )
 
-    dataset_2 = torchvision.datasets.ImageFolder(root='fatboy/camera_2',
+    dataset_2 = torchvision.datasets.ImageFolder(root='fatboy2/camera_2',
                                             transform=transforms.Compose([
                                             transforms.Resize((384,384)),
                                             transforms.ToTensor(),
                                             ]))
 
     dataloader_2 = torch.utils.data.DataLoader(dataset=dataset_2,
-                                                    batch_size=config.opt.val_batch_size if hasattr(config.opt, "val_batch_size") else config.opt.batch_size,
+                                                    batch_size=5,
                                                     shuffle=False,
                                                     drop_last = True
                                                     )
 
-    dataset_4 = torchvision.datasets.ImageFolder(root='fatboy/camera_4',
+    dataset_4 = torchvision.datasets.ImageFolder(root='fatboy2/camera_4',
                                             transform=transforms.Compose([
                                             transforms.Resize((384,384)),
                                             transforms.ToTensor(),
                                             ]))
 
     dataloader_4 = torch.utils.data.DataLoader(dataset=dataset_4,
-                                                    batch_size=config.opt.val_batch_size if hasattr(config.opt, "val_batch_size") else config.opt.batch_size,
+                                                    batch_size=5,
                                                     shuffle=False,
                                                     drop_last = True
                                                     )
 
-    dataset_6 = torchvision.datasets.ImageFolder(root='fatboy/camera_6',
+    dataset_6 = torchvision.datasets.ImageFolder(root='fatboy2/camera_6',
                                             transform=transforms.Compose([
                                             transforms.Resize((384,384)),
                                             transforms.ToTensor(),
                                             ]))
 
     dataloader_6 = torch.utils.data.DataLoader(dataset=dataset_6,
-                                                batch_size=config.opt.val_batch_size if hasattr(config.opt, "val_batch_size") else config.opt.batch_size,
+                                                batch_size=5,
                                                 shuffle=False,
                                                 drop_last = True
                                                 )
@@ -127,7 +130,7 @@ def main(args):
 
     # datasets
     print("Loading data...")
-    batch_size = config.opt.val_batch_size if hasattr(config.opt, "val_batch_size") else config.opt.batch_size
+    batch_size = 5
     dataloaders = set_dataloader(config)
     
     frame = 0
@@ -136,11 +139,12 @@ def main(args):
 
         for data_1, data_2, data_4, data_6 in dataloaders:
 
-            images_1 = data_1[0]
-            images_2 =  data_2[0]
-            images_4 =  data_4[0]
-            images_6 =  data_6[0]
+            images_1 = data_1[0].to(device)
+            images_2 =  data_2[0].to(device)
+            images_4 =  data_4[0].to(device)
+            images_6 =  data_6[0].to(device)
 
+            
             images_batch = torch.Tensor(4, batch_size , 3, 384, 384)
 
             images_batch[0] = images_1
@@ -149,32 +153,34 @@ def main(args):
             images_batch[3] = images_6
 
             images_batch = images_batch.permute(1, 0, 2, 3, 4).contiguous().to(device)
-            proj_matricies_batch = finalize(batch_size).to(device)
-
             
+          # [batchsize, 4, 3, 384, 384]
+
+            proj_matricies_batch = finalize(batch_size).to(device)
             keypoints_3d_pred, keypoints_2d_pred, heatmaps_pred, confidences_pred = model(images_batch, proj_matricies_batch)
 
-            """
+            
             for idx, keypoint in enumerate(keypoints_3d_pred): 
 
-                ax = plt.axes()  
+                ax = plt.axes(projection='3d')  
                 vis.draw_3d_pose(keypoint.cpu(), ax, keypoints_mask=None, kind='human36m', radius=None, root=None, point_size=2, line_width=2, draw_connections=True)
-                plt.savefig('vis_test/{}'.format(str(frame)))
+                plt.savefig('/volume/cs409/vis_fatboy/cut_pretrained_old/{}'.format(str(frame)))
                 plt.close()
                 
                 frame += 1
                 print('Frame : {}'.format(frame))
+            
             """
-
             for idx, keypoint in enumerate(keypoints_2d_pred):
                 for camera_idx, images in enumerate(keypoint):
-                    ax = plt.axes()  
+                    ax = plt.axes(projection='2d')  
                     vis.draw_2d_pose(images.cpu(), ax, kind='human36m')
-                    plt.savefig('vis_test/{}'.format(str(frame)))
+                    plt.savefig('vis_fatboy/{}'.format(str(frame)))
                     plt.close()
 
                     frame += 1
                     print('Frame : {}'.format(frame))
+            """
 
             del keypoints_3d_pred, images_batch, keypoints_2d_pred, heatmaps_pred, confidences_pred, proj_matricies_batch
             torch.cuda.empty_cache()
