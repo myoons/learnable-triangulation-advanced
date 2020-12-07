@@ -43,16 +43,18 @@ def create_batch(batchSize):
     for i in names:
         applist=[]
         for j in range(batchSize):
-            applist.append(create_cam(i))
+            temp_camera = create_cam(i).update_after_resize((1080, 1920), (384, 384))
+            applist.append(temp_camera)
         retlist.append(applist)
     return retlist
 
-def finalize():
-    cameras=create_batch(16)
+def finalize(batchSize):
+    cameras=create_batch(batchSize)
     proj_matricies_batch = torch.stack([torch.stack([torch.from_numpy(camera.projection) for camera in camera_batch], dim=0) for camera_batch in cameras], dim=0).transpose(1, 0)
     device = torch.device(0)
     proj_matricies_batch = proj_matricies_batch.float().to(device)
     return proj_matricies_batch
+    
 
 if __name__ == '__main__' :
     finalize()
