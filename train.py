@@ -94,6 +94,9 @@ def select_intensity(idx):
     elif idx == 10:
         return iaa.arithmetic.Invert()
 
+    elif idx == 11:
+        return iaa.Identity()
+
 
 def aug_batch(original_batch, device):
 
@@ -106,7 +109,7 @@ def aug_batch(original_batch, device):
         numpy_batch = cv2.normalize(transposedBatch.cpu().numpy(), None, 0, 255, cv2.NORM_MINMAX, cv2.CV_8U) # [4, 384, 384, 3]
         
         # augmentation 고정
-        selected_augmentation = randint(0,10) # 11가지 augmentation
+        selected_augmentation = randint(0,11) # 11가지 augmentation
         aug = select_intensity(selected_augmentation)
 
         # augmented image
@@ -239,7 +242,7 @@ def setup_experiment(config, model_name, is_train=True):
     return experiment_dir, writer
 
 # Code for One Epoch
-def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_total=0, is_train=True, caption='', master=True, experiment_dir=None, writer=None, fmatch=False, results_dir=None):
+def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_total=0, is_train=True, caption='', master=True, experiment_dir=None, writer=None, fmatch=False):
     global epoch_count
     epoch_start_time = time.time()
 
@@ -267,7 +270,11 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             # islice(iterable, start, stop, step) isslice(iterator, 1250) --> index 0 ~ 1249 (1249개) 할당함
             iterator = islice(iterator, config.opt.n_iters_per_epoch)
 
-        
+        if epoch < 10 : 
+            fmatch = False
+        else :
+            fmatch = True
+
         for iter_i, batch in iterator: # enumerate(dataloader)
 
             # measure data loading time
@@ -282,8 +289,6 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
             
             images_batch, keypoints_3d_gt, keypoints_3d_validity_gt, proj_matricies_batch = dataset_utils.prepare_batch(batch, device, config)
             keypoints_2d_pred, cuboids_pred, base_points_pred = None, None, None
-
-            fmatch = True
 
             if fmatch :
                 images_batch = aug_batch(images_batch, device).to(device) # Currently CPU [7, 8, 4, 3, 384, 384]
@@ -343,11 +348,6 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                 total_loss += weight * loss
             
             metric_dict['total_loss'].append(total_loss.item())
-            
-            if iter_i%62==0 and total_loss.item()<6:
-                all_loss.append(total_loss.item())
-            elif iter_i%25==0 and total_loss.item()<6:
-                epoch_loss.append(total_loss.item())
             
             if is_train: # If in Trainloop
                 opt.zero_grad() # input
@@ -439,7 +439,7 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
 
                 n_iters_total += 1
 
-            if iter_i >= 2000:
+            if not is_train and iter_i >= 100:
                 break
                 
     # calculate evaluation metrics
@@ -471,16 +471,6 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
         for title, value in metric_dict.items():
             writer.add_scalar(f"{name}/{title}_epoch", np.mean(value), epoch)
 
-    if not args.eval:
-        fig = plt.figure()
-        fig.xlabel=('steps')
-        fig.ylabel=('loss')
-        ax = fig.add_subplot(111)
-        ax.plot(epoch_loss)
-        fig.savefig(results_dir+'/'+'epoch_loss'+str(epoch_count)+'.png')
-        epoch_count+=1
-        matplotlib.pyplot.close(fig)
-
     epoch_finish_time = time.time()
 
     print( '\n Epoch : {} Finished \t Duration : {} \n'.format(epoch, epoch_finish_time-epoch_start_time))
@@ -510,10 +500,6 @@ def init_distributed(args):
 
 def main(args):
     print("**** Number of available GPUs: {} ****".format(torch.cuda.device_count()))
-
-    results_dir = os.path.join(os.getcwd(),'results','30epochs')
-    if not os.path.isdir(results_dir):
-        os.makedirs(results_dir)
 
     is_distributed = init_distributed(args)
     master = True
@@ -604,8 +590,8 @@ def main(args):
             print('*******************************************************************************************************\n')
             print("Start Epoch : {} \t is_train : True \t n_iters_total_train : {} \t  n_iters_total_val : {}".format(epoch, n_iters_total_train, n_iters_total_val))
 
-            n_iters_total_train = one_epoch(model, criterion, opt, config, train_dataloader, device, epoch, n_iters_total=n_iters_total_train, is_train=True, master=master, experiment_dir=experiment_dir, writer=writer, results_dir=results_dir)
-            # n_iters_total_val = one_epoch(model, criterion, opt, config, val_dataloader, device, epoch, n_iters_total=n_iters_total_val, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer, results_dir=results_dir)
+            n_iters_total_train = one_epoch(model, criterion, opt, config, train_dataloader, device, epoch, n_iters_total=n_iters_total_train, is_train=True, master=master, experiment_dir=experiment_dir, writer=writer)
+            n_iters_total_val = one_epoch(model, criterion, opt, config, val_dataloader, device, epoch, n_iters_total=n_iters_total_val, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
 
             if master:
                 checkpoint_dir = os.path.join(experiment_dir, "checkpoints", "{:04}".format(epoch))
@@ -636,35 +622,6 @@ def main(args):
             n_iters_total_train = one_epoch(model, criterion, opt, config, train_dataloader, device, epoch=0, n_iters_total=0, is_train=True, master=master, experiment_dir=experiment_dir, writer=writer)
         else: # Default
             n_iters_total_train = one_epoch(model, criterion, opt, config, val_dataloader, device, epoch=0, n_iters_total=0, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
-    
-    if not args.eval:
-        fig = plt.figure()
-        fig.xlabel=('steps')
-        fig.ylabel=('loss')
-        ax = fig.add_subplot(111)
-        ax.plot(all_loss)
-        fig.savefig(results_dir+'/'+'all_loss.png')
-        matplotlib.pyplot.close(fig)
-
-        smooth_all_loss = gaussian_filter1d(all_loss, sigma=1)
-
-        fig = plt.figure()
-        fig.xlabel=('steps')
-        fig.ylabel=('loss')
-        ax = fig.add_subplot(111)
-        ax.plot(smooth_all_loss)
-        fig.savefig(results_dir+'/'+'smooth_all_loss.png')
-        matplotlib.pyplot.close(fig)
-
-        smoother_all_loss = gaussian_filter1d(all_loss, sigma=2)
-
-        fig = plt.figure()
-        fig.xlabel=('steps')
-        fig.ylabel=('loss')
-        ax = fig.add_subplot(111)
-        ax.plot(smoother_all_loss)
-        fig.savefig(results_dir+'/'+'smoother_all_loss.png')
-        matplotlib.pyplot.close(fig)
 
     print("""
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
