@@ -438,9 +438,6 @@ def one_epoch(model, criterion, opt, config, dataloader, device, epoch, n_iters_
                 writer.add_scalar(f"{name}/n_views", n_views, n_iters_total)
 
                 n_iters_total += 1
-
-            if not is_train and iter_i >= 100:
-                break
                 
     # calculate evaluation metrics
     if master:
@@ -591,7 +588,7 @@ def main(args):
             print("Start Epoch : {} \t is_train : True \t n_iters_total_train : {} \t  n_iters_total_val : {}".format(epoch, n_iters_total_train, n_iters_total_val))
 
             n_iters_total_train = one_epoch(model, criterion, opt, config, train_dataloader, device, epoch, n_iters_total=n_iters_total_train, is_train=True, master=master, experiment_dir=experiment_dir, writer=writer)
-            n_iters_total_val = one_epoch(model, criterion, opt, config, val_dataloader, device, epoch, n_iters_total=n_iters_total_val, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
+            # n_iters_total_val = one_epoch(model, criterion, opt, config, val_dataloader, device, epoch, n_iters_total=n_iters_total_val, is_train=False, master=master, experiment_dir=experiment_dir, writer=writer)
 
             if master:
                 checkpoint_dir = os.path.join(experiment_dir, "checkpoints", "{:04}".format(epoch))

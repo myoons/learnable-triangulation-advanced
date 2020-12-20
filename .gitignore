@@ -132,3 +132,6 @@ videos
 test_images
 vis_36m
 vis_fatboy
+
+mnist
+nohup2-1-2.out
